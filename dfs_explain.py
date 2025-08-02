@@ -55,3 +55,4 @@ graph = {
 # Run the test
 result = hasCycle(graph)
 print("Final result:", result)
+print("test")
