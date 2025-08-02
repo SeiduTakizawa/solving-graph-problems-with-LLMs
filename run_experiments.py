@@ -157,7 +157,7 @@ def run_experiment(args):
 
             if 'pseudo' in args.method:
                 name = args.method.replace('pseudo','')
-                f = open("pseudocodes/"+args.problem+"_"+name+"pseudo.txt", "r")
+                f = open("pseudocodes/"+args.problem+"_"+name+"pseudo.txt", "r", encoding="utf-8")
                 prompt = f.read()
                 # lines = f.readlines()
                 f.close()
@@ -303,7 +303,7 @@ def run_experiment(args):
 
         if isinstance(question, list):
 
-            f = open(result_path, "w")
+            f = open(result_path, "w", encoding="utf-8")
 
             correct_file = "False"
 
@@ -327,7 +327,7 @@ def run_experiment(args):
                 f.write("Ground truth: "+str(ground_truth_solution)+"\n")
                 f.write("Found answer: "+str(found_answer)+"\n\n")
                 f.write("Question: "+q+"\n\n")
-                f.write("Answer: "+answer+"\n\n\--------------------\n\n")
+            f.write("Answer: "+answer+"\n\n--------------------\n\n")
             f.close()
 
         else:
@@ -342,7 +342,8 @@ def run_experiment(args):
 
             result_path = os.path.join(results_path, filename)
 
-            f = open(result_path, "w")
+            f = open(result_path, "w", encoding="utf-8")
+
             f.write(correct+"\n\n")
             f.write("Ground truth: "+str(ground_truth_solution)+"\n")
             f.write("Found answer: "+str(found_answer)+"\n\n")
@@ -359,7 +360,8 @@ def run_experiment(args):
     if not os.path.exists(experiment_path):
         os.makedirs(experiment_path)
 
-    f = open(experiment_path+'/'+args.method+".txt", "w")
+    f = open(experiment_path+'/'+args.method+".txt", "w", encoding="utf-8")
+
     f.write(args.method+"\n")
     f.write(args.problem+"\n")
     f.write(solved+"\n"+perc+"\n"+total+"\n\n")
@@ -393,7 +395,7 @@ args = parser.parse_args()
 if args.all:
     problems = ["node_count", "edge_count", "node_degree", "connected_nodes", "connected_components_count", "cycle_check",
                 "shortest_path", "minimum_spanning_tree", "topological_sorting", "bipartite"]
-    
+
     sizes = ["small", "medium", "large"]
     # types = ["er", "ba", "path", "complete", "sbm", "sfn", "star"]
     types = ["er"]

@@ -1,0 +1,132 @@
+Correct
+
+Ground truth: True
+Found answer: True
+
+Question: function hasCycle(graph):
+    visited = set()
+
+    for node in graph:
+        if node not in visited:
+            if dfs(node, -1, visited, graph) == True:
+                return "There is a cycle"
+
+    return "There is no cycle"
+
+function dfs(current, parent, visited, graph):
+    mark current as visited
+    for neighbor in graph[current]:
+        if neighbor is not visited:
+            if dfs(neighbor, current, visited, graph) == True:
+                return True
+        else if neighbor != parent:
+            return True
+    return False
+
+
+Let G be a graph. The edge list of graph G is the following:
+[(0, 1), (0, 3), (1, 2), (1, 4), (3, 4), (3, 5), (2, 5), (4, 5)]
+
+Is there a cycle in the graph G?
+
+To determine whether there is a cycle in this graph, apply the Depth-First Search (DFS) algorithm with cycle detection. Follow the provided pseudocode step-by-step and show all steps clearly, including:
+
+Step-by-step execution:
+
+1. Build the graph as an adjacency list from the edgelist:
+
+
+graph = {
+    0: [1, 3],
+    1: [0, 2, 4],
+    2: [1, 5],
+    3: [0, 4, 5],
+    4: [1, 3, 5],
+    5: [3, 2, 4]
+}
+
+
+2. Initialize `visited = {}`
+
+3. Start with node 0 (not visited):
+   Call `dfs(0, -1)`
+   → Mark 0 visited → visited = {0}
+   → Visit neighbor 1 → call `dfs(1, 0)`
+   → Mark 1 visited → visited = {0, 1}
+   → Neighbor 0 is parent → skip
+   → Visit neighbor 2 → call `dfs(2, 1)`
+   → Mark 2 visited → visited = {0, 1, 2}
+   → Neighbor 1 is parent → skip
+   → Visit neighbor 5 → call `dfs(5, 2)`
+   → Mark 5 visited → visited = {0, 1, 2, 5}
+   → Visit neighbor 3 → call `dfs(3, 5)`
+   → Mark 3 visited → visited = {0, 1, 2, 3, 5}
+   → Visit neighbor 0 → already visited and not parent → **cycle found**
+Output: There is a cycle.
+
+
+
+
+ Let G be a graph. The edgelist of graph G is the following: [(0, 1), (0, 2), (0, 3), (0, 4), (0, 6), (0, 7), (0, 8), (1, 2), (1, 4), (1, 5), (1, 7), (1, 8), (1, 9), (2, 5), (2, 6), (2, 10), (3, 5), (3, 9), (4, 6), (4, 10), (5, 7), (6, 8), (6, 10), (7, 9), (8, 10)]. Is there a cycle in G? Follow the provided pseudocode step-by-step and show all steps. Output the result like that: "There is a cycle" or "There is no cycle."
+
+Answer: Step-by-step execution for the second graph:
+
+1. Build the graph as an adjacency list from the edgelist:
+
+```python
+graph = {
+    0: [1, 2, 3, 4, 6, 7, 8],
+    1: [0, 2, 4, 5, 7, 8, 9],
+    2: [1, 5, 6, 10],
+    3: [5, 9],
+    4: [6, 10],
+    5: [7],
+    6: [8, 10],
+    7: [9],
+    8: [10],
+    9: [],
+    10: []
+}
+```
+
+2. Initialize `visited = {}`
+
+3. Start with node 0 (not visited):
+   Call `dfs(0, -1)`
+   → Mark 0 visited → visited = {0}
+   → Visit neighbor 1 → call `dfs(1, 0)`
+   → Mark 1 visited → visited = {0, 1}
+   → Neighbor 0 is parent → skip
+   → Visit neighbor 2 → call `dfs(2, 1)`
+   → Mark 2 visited → visited = {0, 1, 2}
+   → Neighbor 1 is parent → skip
+   → Visit neighbor 5 → call `dfs(5, 2)`
+   → Mark 5 visited → visited = {0, 1, 2, 5}
+   → Visit neighbor 7 → call `dfs(7, 5)`
+   → Mark 7 visited → visited = {0, 1, 2, 5, 7}
+   → Visit neighbor 9 → call `dfs(9, 7)`
+   → Mark 9 visited → visited = {0, 1, 2, 5, 7, 9}
+   → No more neighbors for 9
+   → Backtrack to 7
+   → No more neighbors for 7
+   → Backtrack to 5
+   → No more neighbors for 5
+   → Backtrack to 2
+   → Visit neighbor 6 → call `dfs(6, 2)`
+   → Mark 6 visited → visited = {0, 1, 2, 5, 6}
+   → Visit neighbor 8 → call `dfs(8, 6)`
+   → Mark 8 visited → visited = {0, 1, 2, 5, 6, 8}
+   → Visit neighbor 10 → call `dfs(10, 8)`
+   → Mark 10 visited → visited = {0, 1, 2, 5, 6, 8, 10}
+   → No more neighbors for 10
+   → Backtrack to 8
+   → No more neighbors for 8
+   → Backtrack to 6
+   → No more neighbors for 6
+   → Backtrack to 2
+   → Backtrack to 1
+   → Visit neighbor 4 → call `dfs(4, 1)`
+   → Mark 4 visited → visited = {0, 1, 2, 5, 4}
+   → Visit neighbor 6 → already visited and not parent → **cycle found**
+
+Output: There is a cycle

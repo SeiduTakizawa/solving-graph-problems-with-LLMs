@@ -1,0 +1,117 @@
+False
+
+Ground truth: True
+Found answer: False
+
+Question: function hasCycle(graph):
+    visited = set()
+
+    for node in graph:
+        if node not in visited:
+            if dfs(node, -1, visited, graph) == True:
+                return "There is a cycle"
+
+    return "There is no cycle"
+
+function dfs(current, parent, visited, graph):
+    mark current as visited
+    for neighbor in graph[current]:
+        if neighbor is not visited:
+            if dfs(neighbor, current, visited, graph) == True:
+                return True
+        else if neighbor != parent:
+            return True
+    return False
+
+
+Let G be a graph. The edge list of graph G is the following:
+[(0, 1), (0, 3), (1, 2), (1, 4), (3, 4), (3, 5), (2, 5), (4, 5)]
+
+Is there a cycle in the graph G?
+
+To determine whether there is a cycle in this graph, apply the Depth-First Search (DFS) algorithm with cycle detection. Follow the provided pseudocode step-by-step and show all steps clearly, including:
+
+Step-by-step execution:
+
+1. Build the graph as an adjacency list from the edgelist:
+
+
+graph = {
+    0: [1, 3],
+    1: [0, 2, 4],
+    2: [1, 5],
+    3: [0, 4, 5],
+    4: [1, 3, 5],
+    5: [3, 2, 4]
+}
+
+
+2. Initialize `visited = {}`
+
+3. Start with node 0 (not visited):
+   Call `dfs(0, -1)`
+   → Mark 0 visited → visited = {0}
+   → Visit neighbor 1 → call `dfs(1, 0)`
+   → Mark 1 visited → visited = {0, 1}
+   → Neighbor 0 is parent → skip
+   → Visit neighbor 2 → call `dfs(2, 1)`
+   → Mark 2 visited → visited = {0, 1, 2}
+   → Neighbor 1 is parent → skip
+   → Visit neighbor 5 → call `dfs(5, 2)`
+   → Mark 5 visited → visited = {0, 1, 2, 5}
+   → Visit neighbor 3 → call `dfs(3, 5)`
+   → Mark 3 visited → visited = {0, 1, 2, 3, 5}
+   → Visit neighbor 0 → already visited and not parent → **cycle found**
+Output: There is a cycle.
+
+
+
+
+ Let G be a graph. The edgelist of graph G is the following: [(0, 1), (0, 2), (0, 4), (0, 5), (0, 12), (0, 13), (1, 3), (1, 4), (1, 5), (1, 6), (1, 8), (1, 9), (1, 11), (1, 13), (2, 4), (2, 7), (2, 11), (2, 13), (3, 5), (3, 10), (3, 11), (3, 14), (4, 5), (4, 8), (4, 9), (5, 7), (5, 9), (5, 10), (6, 7), (6, 9), (7, 8), (7, 13), (8, 11), (8, 14), (9, 12), (9, 13), (9, 14), (10, 12), (10, 13), (10, 14), (11, 14)]. Is there a cycle in G? Follow the provided pseudocode step-by-step and show all steps. Output the result like that: "There is a cycle" or "There is no cycle."
+
+Answer: Step-by-step execution for the second graph:
+
+1. Build the graph as an adjacency list from the edgelist:
+
+```python
+graph = {
+    0: [1, 2, 4, 5, 12, 13],
+    1: [0, 3, 4, 5, 6, 8, 9, 11, 13],
+    2: [4, 7, 11, 13],
+    3: [5, 10, 11, 14],
+    4: [5, 8, 9],
+    5: [7, 9, 10],
+    6: [7, 9],
+    7: [8, 13],
+    8: [11, 14],
+    9: [12, 13, 14],
+    10: [12, 13, 14],
+    11: [14]
+}
+```
+
+2. Initialize `visited = {}`
+
+3. Start with node 0 (not visited):
+   Call `dfs(0, -1)`
+   → Mark 0 visited → visited = {0}
+   → Visit neighbor 1 → call `dfs(1, 0)`
+   → Mark 1 visited → visited = {0, 1}
+   → Neighbor 0 is parent → skip
+   → Visit neighbor 3 → call `dfs(3, 1)`
+   → Mark 3 visited → visited = {0, 1, 3}
+   → Visit neighbor 5 → call `dfs(5, 3)`
+   → Mark 5 visited → visited = {0, 1, 3, 5}
+   → Visit neighbor 7 → call `dfs(7, 5)`
+   → Mark 7 visited → visited = {0, 1, 3, 5, 7}
+   → Visit neighbor 8 → call `dfs(8, 7)`
+   → Mark 8 visited → visited = {0, 1, 3, 5, 7, 8}
+   → Visit neighbor 11 → call `dfs(11, 8)`
+   → Mark 11 visited → visited = {0, 1, 3, 5, 7, 8, 11}
+   → Visit neighbor 14 → call `dfs(14, 11)`
+   → Mark 14 visited → visited = {0, 1, 3, 5, 7, 8, 11, 14}
+   → No more neighbors for 14, return False
+
+4. Continue with other unvisited nodes, but no cycle is found.
+
+Output: There is no cycle.

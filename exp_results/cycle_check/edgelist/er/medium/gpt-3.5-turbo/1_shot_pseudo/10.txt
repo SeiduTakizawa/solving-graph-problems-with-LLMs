@@ -1,0 +1,106 @@
+Correct
+
+Ground truth: True
+Found answer: True
+
+Question: function hasCycle(graph):
+    visited = set()
+
+    for node in graph:
+        if node not in visited:
+            if dfs(node, -1, visited, graph) == True:
+                return "There is a cycle"
+
+    return "There is no cycle"
+
+function dfs(current, parent, visited, graph):
+    mark current as visited
+    for neighbor in graph[current]:
+        if neighbor is not visited:
+            if dfs(neighbor, current, visited, graph) == True:
+                return True
+        else if neighbor != parent:
+            return True
+    return False
+
+
+Let G be a graph. The edge list of graph G is the following:
+[(0, 1), (0, 3), (1, 2), (1, 4), (3, 4), (3, 5), (2, 5), (4, 5)]
+
+Is there a cycle in the graph G?
+
+To determine whether there is a cycle in this graph, apply the Depth-First Search (DFS) algorithm with cycle detection. Follow the provided pseudocode step-by-step and show all steps clearly, including:
+
+Step-by-step execution:
+
+1. Build the graph as an adjacency list from the edgelist:
+
+
+graph = {
+    0: [1, 3],
+    1: [0, 2, 4],
+    2: [1, 5],
+    3: [0, 4, 5],
+    4: [1, 3, 5],
+    5: [3, 2, 4]
+}
+
+
+2. Initialize `visited = {}`
+
+3. Start with node 0 (not visited):
+   Call `dfs(0, -1)`
+   → Mark 0 visited → visited = {0}
+   → Visit neighbor 1 → call `dfs(1, 0)`
+   → Mark 1 visited → visited = {0, 1}
+   → Neighbor 0 is parent → skip
+   → Visit neighbor 2 → call `dfs(2, 1)`
+   → Mark 2 visited → visited = {0, 1, 2}
+   → Neighbor 1 is parent → skip
+   → Visit neighbor 5 → call `dfs(5, 2)`
+   → Mark 5 visited → visited = {0, 1, 2, 5}
+   → Visit neighbor 3 → call `dfs(3, 5)`
+   → Mark 3 visited → visited = {0, 1, 2, 3, 5}
+   → Visit neighbor 0 → already visited and not parent → **cycle found**
+Output: There is a cycle.
+
+
+
+
+ Let G be a graph. The edgelist of graph G is the following: [(0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (0, 6), (0, 7), (0, 8), (0, 9), (0, 11), (0, 12), (0, 13), (0, 14), (0, 15), (0, 16), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8), (1, 9), (1, 10), (1, 11), (1, 12), (1, 13), (1, 14), (1, 15), (1, 16), (2, 3), (2, 4), (2, 5), (2, 6), (2, 7), (2, 8), (2, 9), (2, 10), (2, 11), (2, 12), (2, 13), (2, 14), (2, 16), (3, 4), (3, 5), (3, 6), (3, 8), (3, 9), (3, 10), (3, 11), (3, 12), (3, 13), (3, 14), (3, 15), (3, 16), (4, 5), (4, 6), (4, 7), (4, 8), (4, 9), (4, 10), (4, 11), (4, 12), (4, 13), (4, 14), (4, 15), (4, 16), (5, 6), (5, 8), (5, 9), (5, 10), (5, 11), (5, 12), (5, 13), (5, 14), (5, 16), (6, 7), (6, 8), (6, 9), (6, 10), (6, 11), (6, 12), (6, 13), (6, 14), (6, 15), (6, 16), (7, 8), (7, 9), (7, 10), (7, 11), (7, 12), (7, 13), (7, 14), (7, 15), (7, 16), (8, 9), (8, 10), (8, 11), (8, 12), (8, 13), (8, 14), (8, 15), (9, 10), (9, 11), (9, 12), (9, 13), (9, 14), (9, 15), (9, 16), (10, 11), (10, 12), (10, 13), (10, 14), (10, 15), (10, 16), (11, 12), (11, 13), (11, 14), (11, 15), (11, 16), (12, 13), (12, 14), (12, 15), (12, 16), (13, 14), (13, 15), (13, 16), (14, 15), (14, 16), (15, 16)]. Is there a cycle in G? Follow the provided pseudocode step-by-step and show all steps. Output the result like that: "There is a cycle" or "There is no cycle."
+
+Answer: Step-by-step execution for the second graph:
+
+1. Build the graph as an adjacency list from the edge list:
+
+```python
+graph = {
+    0: [1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16],
+    1: [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+    2: [1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16],
+    3: [2, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+    4: [3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+    5: [4, 6, 8, 9, 10, 11, 12, 13, 14, 16],
+    6: [7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+    7: [8, 9, 10, 11, 12, 13, 14, 15, 16],
+    8: [9, 10, 11, 12, 13, 14, 15],
+    9: [10, 11, 12, 13, 14, 15, 16],
+    10: [11, 12, 13, 14, 15, 16],
+    11: [12, 13, 14, 15, 16],
+    12: [13, 14, 15, 16],
+    13: [14, 15, 16],
+    14: [15, 16],
+    15: [16],
+    16: []
+}
+```
+
+2. Initialize `visited = {}`
+
+3. Start with node 0 (not visited):
+   Call `dfs(0, -1)`
+   → Mark 0 visited → visited = {0}
+   → Visit neighbors 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16
+   → Continue visiting neighbors recursively
+
+After following the steps above, the algorithm will detect a cycle in the graph. The output will be: "There is a cycle."

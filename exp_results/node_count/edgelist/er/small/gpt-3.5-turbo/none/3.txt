@@ -1,0 +1,8 @@
+Correct
+
+Ground truth: 10
+Found answer: 10
+
+Question: Let G be a graph. The edgelist of graph G is the following: [(0, 2), (0, 9), (1, 4), (1, 5), (1, 8), (3, 8), (4, 6), (4, 9), (7, 9)]. What is the number of nodes of G? Output the result like that: The number of nodes is ...
+
+Answer: The number of nodes is 10.

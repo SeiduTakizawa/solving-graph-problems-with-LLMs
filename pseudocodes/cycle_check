@@ -1,0 +1,19 @@
+function hasCycle(graph):
+    visited = set()
+
+    for node in graph:
+        if node not in visited:
+            if dfs(node, -1, visited, graph) == True:
+                return "There is a cycle"
+
+    return "There is no cycle"
+
+function dfs(current, parent, visited, graph):
+    mark current as visited
+    for neighbor in graph[current]:
+        if neighbor is not visited:
+            if dfs(neighbor, current, visited, graph) == True:
+                return True
+        else if neighbor != parent:
+            return True
+    return False

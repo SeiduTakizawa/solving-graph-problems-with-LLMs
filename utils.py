@@ -9,8 +9,9 @@ from tqdm import tqdm
 import re
 import inspect
 import time
-
-client = openai.OpenAI(api_key = os.getenv('OPENAI_API_KEY'))
+from pydantic import BaseModel
+import os
+client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY", "your-api-key-here"))
 
 from tenacity import (
     retry,
@@ -113,21 +114,27 @@ def connectivity_get_boolean_answer(answer):
     return None
 
 def cycle_get_boolean_answer(answer):
-    # answer = answer.lower()
-    # last_elems = answer.split()[-15:]
-    # last_str = " ".join(last_elems)
-    # if "There is a cycle" in answer or "the graph G does contain a cycle" in answer or 'Yes, there is a cycle' in answer or 'The graph has a cycle.' in answer or "does have a cycle" in answer:
-    #     return True
-    # if "There is no cycle" in answer or 'The graph does not have a cycle.' in answer or "is no" in last_str or "no cycle" in last_str or "isn't a cycle" in last_str or "is acyclic" in last_str or "absence of cycle" in last_str or "the graph does not have a cycle" in last_str or "did not find any cycle" in last_str:
-    #     return False
-    # if "whether there is a cycle" in last_str or "has a cycle or not" in last_str or "if there is a cycle" in last_str:
-    #     return None
-    answer = answer.split("\n")[-1]
-    if "There is a cycle" in answer:
+    answer = answer.lower()
+
+    if "there is a cycle" in answer:
         return True
-    if "There is no cycle" in answer:
+    elif "there is no cycle" in answer:
         return False
-    return None
+    elif "cycle found" in answer:
+        return True
+    elif "no cycle found" in answer:
+        return False
+    else:
+        # Try scanning each line in reverse for a final judgment
+        for line in reversed(answer.splitlines()):
+            line = line.strip().lower()
+            if "cycle" in line:
+                if "no" in line:
+                    return False
+                if "yes" in line or "found" in line:
+                    return True
+        return None  # if we still can't figure it out
+
 
 def find_number(answer):
     answer_list = answer.split()[-10:]
@@ -164,7 +171,7 @@ def find_number_between_phrases(text):
     # If no match is found, return None
     return None
 
-@retry(wait=wait_random_exponential(min=1, max=100), stop=stop_after_attempt(500))
+@retry(wait=wait_random_exponential(min=1, max=10), stop=stop_after_attempt(3))
 def get_openai_response(text, args):
     completion = client.chat.completions.create(
       model=args.model,
@@ -176,3 +183,23 @@ def get_openai_response(text, args):
       # seed=20
     )
     return(completion.choices[0].message.content)
+class Step(BaseModel):
+    explanation: str
+    output: str
+class Graph_reasoning(BaseModel):
+    steps: list[Step]
+    final_answer: str
+
+
+@retry(wait=wait_random_exponential(min=1, max=10), stop=stop_after_attempt(3))
+def get_graph_reasoning(text, args):
+    completion = client.chat.completions.parse(
+        model=args.model,
+        messages=[
+            {"role": "system", "content": "You are a helpful graph problem assistant."},
+            {"role": "user", "content": text}
+        ],
+        temperature=0,
+        response_format=Graph_reasoning,
+    )
+    return completion.choices[0].message.parsed

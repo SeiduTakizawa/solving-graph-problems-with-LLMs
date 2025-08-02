@@ -1,0 +1,16 @@
+Let G be a graph. The edgelist of graph G is the following:
+[(0, 1), (1, 2), (2, 3), (3, 0), (0, 2)].
+Is there a cycle in the graph G?
+
+To determine if there is a cycle in the given graph, we look for any path that starts and ends at the same node without repeating any edge.
+
+From the edge list, we observe:
+
+The path 0 → 1 → 2 → 3 → 0 forms a cycle.
+
+Also, 0 → 2 → 3 → 0 is another cycle.
+
+Therefore, the graph contains at least one cycle.
+
+Output:
+There is a cycle.

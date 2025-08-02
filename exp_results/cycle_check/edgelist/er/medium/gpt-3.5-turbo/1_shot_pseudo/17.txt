@@ -1,0 +1,167 @@
+False
+
+Ground truth: True
+Found answer: False
+
+Question: function hasCycle(graph):
+    visited = set()
+
+    for node in graph:
+        if node not in visited:
+            if dfs(node, -1, visited, graph) == True:
+                return "There is a cycle"
+
+    return "There is no cycle"
+
+function dfs(current, parent, visited, graph):
+    mark current as visited
+    for neighbor in graph[current]:
+        if neighbor is not visited:
+            if dfs(neighbor, current, visited, graph) == True:
+                return True
+        else if neighbor != parent:
+            return True
+    return False
+
+
+Let G be a graph. The edge list of graph G is the following:
+[(0, 1), (0, 3), (1, 2), (1, 4), (3, 4), (3, 5), (2, 5), (4, 5)]
+
+Is there a cycle in the graph G?
+
+To determine whether there is a cycle in this graph, apply the Depth-First Search (DFS) algorithm with cycle detection. Follow the provided pseudocode step-by-step and show all steps clearly, including:
+
+Step-by-step execution:
+
+1. Build the graph as an adjacency list from the edgelist:
+
+
+graph = {
+    0: [1, 3],
+    1: [0, 2, 4],
+    2: [1, 5],
+    3: [0, 4, 5],
+    4: [1, 3, 5],
+    5: [3, 2, 4]
+}
+
+
+2. Initialize `visited = {}`
+
+3. Start with node 0 (not visited):
+   Call `dfs(0, -1)`
+   → Mark 0 visited → visited = {0}
+   → Visit neighbor 1 → call `dfs(1, 0)`
+   → Mark 1 visited → visited = {0, 1}
+   → Neighbor 0 is parent → skip
+   → Visit neighbor 2 → call `dfs(2, 1)`
+   → Mark 2 visited → visited = {0, 1, 2}
+   → Neighbor 1 is parent → skip
+   → Visit neighbor 5 → call `dfs(5, 2)`
+   → Mark 5 visited → visited = {0, 1, 2, 5}
+   → Visit neighbor 3 → call `dfs(3, 5)`
+   → Mark 3 visited → visited = {0, 1, 2, 3, 5}
+   → Visit neighbor 0 → already visited and not parent → **cycle found**
+Output: There is a cycle.
+
+
+
+
+ Let G be a graph. The edgelist of graph G is the following: [(0, 2), (0, 3), (0, 4), (0, 5), (0, 8), (0, 9), (0, 10), (0, 11), (0, 12), (0, 14), (0, 15), (0, 16), (0, 17), (0, 18), (0, 19), (1, 2), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8), (1, 9), (1, 10), (1, 11), (1, 14), (1, 15), (1, 16), (1, 17), (1, 18), (1, 19), (2, 3), (2, 4), (2, 6), (2, 7), (2, 8), (2, 10), (2, 12), (2, 13), (2, 15), (2, 17), (2, 19), (3, 4), (3, 5), (3, 6), (3, 7), (3, 8), (3, 9), (3, 10), (3, 11), (3, 12), (3, 13), (3, 14), (3, 15), (3, 17), (3, 18), (3, 19), (4, 6), (4, 7), (4, 8), (4, 9), (4, 10), (4, 11), (4, 13), (4, 14), (4, 15), (4, 16), (4, 17), (4, 19), (5, 6), (5, 7), (5, 8), (5, 9), (5, 10), (5, 12), (5, 13), (5, 14), (5, 15), (5, 16), (5, 17), (5, 18), (5, 19), (6, 7), (6, 8), (6, 9), (6, 10), (6, 11), (6, 12), (6, 14), (6, 15), (6, 16), (6, 17), (6, 18), (7, 8), (7, 9), (7, 10), (7, 11), (7, 12), (7, 13), (7, 14), (7, 15), (7, 16), (7, 17), (7, 18), (7, 19), (8, 9), (8, 10), (8, 11), (8, 12), (8, 13), (8, 14), (8, 15), (8, 16), (8, 17), (8, 18), (8, 19), (9, 10), (9, 11), (9, 12), (9, 15), (9, 17), (9, 18), (9, 19), (10, 11), (10, 12), (10, 13), (10, 14), (10, 15), (10, 16), (10, 17), (10, 18), (10, 19), (11, 12), (11, 13), (11, 14), (11, 15), (11, 16), (11, 17), (11, 19), (12, 13), (12, 16), (12, 17), (12, 18), (12, 19), (13, 14), (13, 16), (13, 17), (13, 18), (14, 16), (14, 18), (14, 19), (15, 16), (15, 17), (15, 18), (15, 19), (16, 17), (16, 18), (16, 19), (17, 18), (17, 19), (18, 19)]. Is there a cycle in G? Follow the provided pseudocode step-by-step and show all steps. Output the result like that: "There is a cycle" or "There is no cycle."
+
+Answer: Step-by-step execution for the second graph:
+
+1. Build the graph as an adjacency list from the edge list:
+
+```python
+graph = {
+    0: [2, 3, 4, 5, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19],
+    1: [2, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19],
+    2: [3, 4, 6, 7, 8, 10, 12, 13, 15, 17, 19],
+    3: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19],
+    4: [6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 19],
+    5: [6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19],
+    6: [7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18],
+    7: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+    8: [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+    9: [10, 11, 12, 15, 17, 18, 19],
+    10: [11, 12, 13, 14, 15, 16, 17, 18, 19],
+    11: [12, 13, 14, 15, 16, 17, 19],
+    12: [13, 16, 17, 18, 19],
+    13: [14, 16, 17, 18],
+    14: [16, 18, 19],
+    15: [16, 17, 18, 19],
+    16: [17, 18, 19],
+    17: [18, 19],
+    18: [19],
+    19: []
+}
+```
+
+2. Initialize `visited = {}`
+
+3. Start with node 0 (not visited):
+   Call `dfs(0, -1)`
+   → Mark 0 visited → visited = {0}
+   → Visit neighbor 2 → call `dfs(2, 0)`
+   → Mark 2 visited → visited = {0, 2}
+   → Visit neighbor 3 → call `dfs(3, 2)`
+   → Mark 3 visited → visited = {0, 2, 3}
+   → Visit neighbor 4 → call `dfs(4, 3)`
+   → Mark 4 visited → visited = {0, 2, 3, 4}
+   → Visit neighbor 6 → call `dfs(6, 4)`
+   → Mark 6 visited → visited = {0, 2, 3, 4, 6}
+   → Visit neighbor 7 → call `dfs(7, 6)`
+   → Mark 7 visited → visited = {0, 2, 3, 4, 6, 7}
+   → Visit neighbor 8 → call `dfs(8, 7)`
+   → Mark 8 visited → visited = {0, 2, 3, 4, 6, 7, 8}
+   → Visit neighbor 9 → call `dfs(9, 8)`
+   → Mark 9 visited → visited = {0, 2, 3, 4, 6, 7, 8, 9}
+   → Visit neighbor 10 → call `dfs(10, 9)`
+   → Mark 10 visited → visited = {0, 2, 3, 4, 6, 7, 8, 9, 10}
+   → Visit neighbor 11 → call `dfs(11, 10)`
+   → Mark 11 visited → visited = {0, 2, 3, 4, 6, 7, 8, 9, 10, 11}
+   → Visit neighbor 14 → call `dfs(14, 11)`
+   → Mark 14 visited → visited = {0, 2, 3, 4, 6, 7, 8, 9, 10, 11, 14}
+   → Visit neighbor 15 → call `dfs(15, 14)`
+   → Mark 15 visited → visited = {0, 2, 3, 4, 6, 7, 8, 9, 10, 11, 14, 15}
+   → Visit neighbor 16 → call `dfs(16, 15)`
+   → Mark 16 visited → visited = {0, 2, 3, 4, 6, 7, 8, 9, 10, 11, 14, 15, 16}
+   → Visit neighbor 17 → call `dfs(17, 16)`
+   → Mark 17 visited → visited = {0, 2, 3, 4, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17}
+   → Visit neighbor 18 → call `dfs(18, 17)`
+   → Mark 18 visited → visited = {0, 2, 3, 4, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18}
+   → Visit neighbor 19 → call `dfs(19, 18)`
+   → Mark 19 visited → visited = {0, 2, 3, 4, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 18, 19}
+   → No more neighbors for node 19
+   → Return to node 18
+   → No more neighbors for node 18
+   → Return to node 17
+   → No more neighbors for node 17
+   → Return to node 16
+   → No more neighbors for node 16
+   → Return to node 15
+   → No more neighbors for node 15
+   → Return to node 14
+   → No more neighbors for node 14
+   → Return to node 11
+   → No more neighbors for node 11
+   → Return to node 10
+   → No more neighbors for node 10
+   → Return to node 9
+   → No more neighbors for node 9
+   → Return to node 8
+   → No more neighbors for node 8
+   → Return to node 7
+   → No more neighbors for node 7
+   → Return to node 6
+   → No more neighbors for node 6
+   → Return to node 4
+   → No more neighbors for node 4
+   → Return to node 3
+   → No more neighbors for node 3
+   → Return to node 2
+   → No more neighbors for node 2
+   → Return to node 0
+   → No more neighbors for node 0
+Output: There is no cycle.
