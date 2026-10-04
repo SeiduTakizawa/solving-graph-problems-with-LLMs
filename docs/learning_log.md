@@ -63,3 +63,40 @@ One entry per milestone or experiment round: what was built, what broke, what it
   that rejects answers about nodes that don't exist.
 - No `temperature` is set (model default). Decide before running real experiments.
 - `FORMAT_ERROR` hasn't been seen to recover a real run yet: after the fixes, qwen3 called tools properly.
+
+---
+
+## 2026-10-04: First experiment, node degree (small graphs, dev)
+
+**Setup:** `uv run python -m eval.runner --size small --split dev --n 100 --runs 3 --name degree_small_dev_v1`.
+100 node-degree questions from dev graphs 0–49 (2 per graph), asked as "What is the degree of node X?",
+with no edge list in the prompt. Tools: `get_neighbors`, `count_edges`. Model `ollama_chat/qwen3:8b`.
+Results in `results/harness_runs/degree_small_dev_v1/`. Stopped early: runs 1 and 2 complete, run 3 has 12/100.
+
+**Dev/test split:** graphs 0–49 are dev (build and tune), 50–99 are test (only for final results).
+The split is by graph, so no test graph is ever seen during development.
+
+### Results
+| Run | Accuracy | Notes |
+|---|---|---|
+| 1 | 99% (99/100) | 1 `loop_detected` |
+| 2 | 100% (100/100) | |
+| 3 | 100% (12/12, incomplete) | |
+
+- 0 submitted-but-wrong answers. The only failure was a formatting problem, not a reasoning one.
+- Per question: 2 steps (`get_neighbors` → `submit_answer`), ~930 prompt + ~420 completion tokens, ~4.3 s.
+
+### The one failure (run 1, graph 14, node 3)
+`get_neighbors(3)` → `[0, 1, 2, 4, 5, 6]`, then the model wrote `submit_answer {"answer": 6} </tool_call>`
+**as text**, three times, despite `FORMAT_ERROR`, and was stopped by loop detection. **The answer, 6, was correct.**
+- Loop detection worked: stopped at step 4 instead of 10.
+- `FORMAT_ERROR` did not help: first real evidence that the specific message doesn't fix this qwen3 failure.
+- Open design question: rescue tool calls written as text (lenient: better accuracy) or count them as
+  failures (strict: measures the model more honestly)? If rescued, log it as a separate event so both
+  numbers can be reported.
+
+### Takeaways
+- Node degree on small graphs is easy for tools + a cheap model: one tool call does it. The interesting cases
+  will be harder tasks and larger graphs.
+- Runner fixes: progress printing is now flushed (the log file stayed empty while running), and the summary
+  marks incomplete runs.

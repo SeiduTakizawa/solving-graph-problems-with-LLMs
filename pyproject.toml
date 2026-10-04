@@ -30,7 +30,7 @@ viz = ["matplotlib"]
 
 [tool.setuptools]
 # Packages: the old pipeline and the new harness; data/, results/, scripts/ and legacy/ stay as repo folders.
-packages = ["graph_reasoning", "harness"]
+packages = ["graph_reasoning", "harness", "eval"]
 
 [dependency-groups]
 dev = [
