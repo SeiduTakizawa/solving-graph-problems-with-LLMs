@@ -7,7 +7,7 @@ name = "graph-reasoning"
 version = "1.1"
 description = "Graph reasoning with large language models via pseudo-code prompting"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [
     { name = "Konstantinos Skianis" },
     { name = "Giannis Nikolentzos" },
@@ -21,6 +21,7 @@ dependencies = [
     "pydantic>=2",
     "tenacity",
     "tqdm",
+    "litellm>=1.104.0",
 ]
 
 [project.optional-dependencies]
@@ -28,5 +29,10 @@ dependencies = [
 viz = ["matplotlib"]
 
 [tool.setuptools]
-# Only the pipeline is a package; data/, results/, scripts/ and legacy/ stay as repo folders.
-packages = ["graph_reasoning"]
+# Packages: the old pipeline and the new harness; data/, results/, scripts/ and legacy/ stay as repo folders.
+packages = ["graph_reasoning", "harness"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
