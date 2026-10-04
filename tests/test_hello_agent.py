@@ -86,7 +86,7 @@ def test_crashing_tool_does_not_crash_agent(monkeypatch):
 
     monkeypatch.setattr("harness.hello_agent.run_tool", broken_tool)
     model = fake_model(
-        tool_call("count_edges", {}),
+        tool_call("graph_info", {}),
         tool_call("submit_answer", {"answer": 5}),
     )
     result = run_agent("How many edges does G have?", GRAPH, call_model=model)

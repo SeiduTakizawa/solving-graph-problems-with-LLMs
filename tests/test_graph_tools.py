@@ -26,9 +26,51 @@ def test_get_neighbors_matches_networkx(graphs):
             assert result == {"neighbors": sorted(graph.neighbors(node))}
 
 
-def test_count_edges_matches_networkx(graphs):
+def test_graph_info_matches_networkx(graphs):
     for graph in graphs:
-        assert run_tool(graph, "count_edges", {}) == {"edges": graph.number_of_edges()}
+        result = run_tool(graph, "graph_info", {})
+        assert result == {"nodes": graph.number_of_nodes(), "edges": graph.number_of_edges(), "directed": False}
+
+
+def test_shortest_path_matches_networkx(graphs):
+    for graph in graphs:
+        nodes = sorted(graph.nodes)
+        for source in nodes:
+            for target in nodes:
+                result = run_tool(graph, "shortest_path", {"source": source, "target": target})
+                if nx.has_path(graph, source, target):
+                    assert result["reachable"] is True
+                    assert result["length"] == nx.shortest_path_length(graph, source, target)
+                    path = result["path"]
+                    assert path[0] == source and path[-1] == target
+                    assert len(path) == result["length"] + 1
+                    assert all(graph.has_edge(u, v) for u, v in zip(path, path[1:]))  # a real path in G
+                else:
+                    assert result == {"reachable": False}
+
+
+def test_shortest_path_missing_node_is_an_error():
+    result = run_tool(nx.path_graph(3), "shortest_path", {"source": 0, "target": 99})
+    assert "does not exist" in result["error"]
+
+
+def test_connected_components_matches_networkx(graphs):
+    for graph in graphs:
+        result = run_tool(graph, "connected_components", {})
+        expected = sorted((sorted(c) for c in nx.connected_components(graph)), key=lambda c: c[0])
+        assert result == {"count": len(expected), "components": expected}
+
+
+def test_has_cycle_matches_networkx(graphs):
+    for graph in graphs:
+        result = run_tool(graph, "has_cycle", {})
+        assert result == {"has_cycle": len(nx.cycle_basis(graph)) > 0}
+
+
+def test_has_cycle_small_cases():
+    assert run_tool(nx.path_graph(4), "has_cycle", {}) == {"has_cycle": False}   # 0-1-2-3
+    assert run_tool(nx.cycle_graph(3), "has_cycle", {}) == {"has_cycle": True}   # triangle
+    assert run_tool(nx.empty_graph(3), "has_cycle", {}) == {"has_cycle": False}  # no edges
 
 
 # Tools never raise: every bad input comes back as an error the model can read.

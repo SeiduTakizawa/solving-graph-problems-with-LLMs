@@ -100,3 +100,42 @@ The split is by graph, so no test graph is ever seen during development.
   will be harder tasks and larger graphs.
 - Runner fixes: progress printing is now flushed (the log file stayed empty while running), and the summary
   marks incomplete runs.
+
+---
+
+## 2026-10-04: All 5 M1 tools, plus a first look at a code-writing agent
+
+### Tools
+`get_neighbors`, `graph_info` (replaces `count_edges`), `shortest_path`, `connected_components`, `has_cycle`,
+each tested against networkx on all 300 dataset graphs. Notes from writing them:
+- networkx signals "nothing found" by raising (`NetworkXNoPath`, `NetworkXNoCycle`); tools turn that into a
+  normal answer (`{"reachable": False}`, `{"has_cycle": False}`), never an error.
+- Bug caught by the tests: `graph.number_of_nodes` without `()` returns the method, not the number.
+
+With the real model, each question went straight to the right tool: components → `connected_components`,
+path length → `shortest_path`, cycle → `has_cycle`. But for the cycle question it submitted `0` for "no",
+because `submit_answer` only accepts an integer. **Per-task answer types are now blocking.**
+
+### Code-writing agent vs tool harness (one question, anecdotal)
+"Is there a cycle in G?" on `data/graphs/er/small/0.txt`. Claude Code (`claude -p --model sonnet`, Sonnet 5.5),
+allowed only to run the project's Python and read files, with the graph given as a file.
+
+| | Our harness (qwen3:8b, local) | Claude Code (Sonnet 5.5) |
+|---|---|---|
+| Correct | yes (`has_cycle` → false, submitted as `0`) | yes ("No") |
+| Model calls | 2 | 2 |
+| Time | 3.0 s | 4.1 s |
+| Input tokens | 1,093 | 38,660 (29,071 cache read + 9,585 cache write) |
+| Output tokens | 276 | 196 |
+| Cost | $0 (local) | $0.046 (reported API-equivalent) |
+
+Sonnet wrote one script, `nx.is_forest(G)` plus node/edge counts, and got it right first try.
+- **Overhead:** about 35× more input tokens, almost all from Claude Code's own system prompt and tool
+  definitions, sent on every call (cached, but still there). A general harness pays this on every task.
+- **My prediction was wrong on output tokens:** code was not more output-heavy; qwen3's thinking tokens
+  dominate its output. No retries either: strong models rarely fumble a one-liner. The retry cost
+  should show up with cheap models writing code, or with harder tasks.
+- The two approaches put the knowledge in different places: in the model (Sonnet knows networkx) vs in
+  the tools (`has_cycle` does it for qwen3).
+- **Not a fair comparison:** different models, one run, a tiny graph. The real version is M6: same model,
+  same tools, many questions.
