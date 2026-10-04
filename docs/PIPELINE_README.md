@@ -4,7 +4,7 @@
 
 This document traces the complete execution pipeline when running:
 ```bash
-python run_experiments_refactored.py --problem node_count --method none --size small --model gpt-3.5-turbo
+python run_experiments.py --problem node_count --method none --size small --model gpt-3.5-turbo
 ```
 
 ## 📊 Pipeline Overview
@@ -15,7 +15,7 @@ CLI Input → Config Creation → Experiment Runner → File Processing → Mode
 
 ## 🔄 Detailed Execution Flow
 
-### 1. **Entry Point** - `run_experiments_refactored.py`
+### 1. **Entry Point** - `run_experiments.py`
 
 ```python
 # Command line execution starts here
@@ -59,7 +59,7 @@ class PathManager:
         # For our example, creates these paths:
         self.graphs_dir = "../graphs/er/small"  # Graph files location
         self.questions_dir = "../graphs_questions/er/small"  # Question files location
-        self.results_dir = "../exp_results/node_count/edgelist/er/small/gpt-3.5-turbo/none"
+        self.results_dir = "results/exp_results/node_count/edgelist/er/small/gpt-3.5-turbo/none"
         self.experiment_dir = "../experiments/node_count/edgelist/er/small/gpt-3.5-turbo"
 
     def ensure_directories_exist(self):
@@ -198,7 +198,7 @@ def _process_results(self, filename, original_questions, formatted_questions, an
 class ResultProcessor:
     def compute_ground_truth(self, edgelist: List[Tuple[int, int]]):
         # For problem="node_count"
-        return node_count(edgelist) ✓  # Calls function from new_functions.py
+        return node_count(edgelist) ✓  # Calls function from graph_algorithms.py
         # For edgelist [(1,2), (2,3), (1,3)] returns: 3
     
     def parse_answer(self, answer: str, edgelist):
@@ -250,7 +250,7 @@ def _validate_and_format_results(self, filename, original_questions, formatted_q
     }
 
 def _save_result_file(self, result_info):
-    # Saves to: exp_results/node_count/edgelist/er/small/gpt-3.5-turbo/none/0.txt
+    # Saves to: results/exp_results/node_count/edgelist/er/small/gpt-3.5-turbo/none/0.txt
     FileManager.save_single_result(
         file_path="exp_results/node_count/edgelist/er/small/gpt-3.5-turbo/none/0.txt",
         correct="Correct",
@@ -319,7 +319,7 @@ Not solved:
 After running the experiment, you'll see:
 
 ```
-exp_results/node_count/edgelist/er/small/gpt-3.5-turbo/none/
+results/exp_results/node_count/edgelist/er/small/gpt-3.5-turbo/none/
 ├── 0.txt     # Detailed result for graph 0
 ├── 1.txt     # Detailed result for graph 1
 ├── 2.txt     # Detailed result for graph 2

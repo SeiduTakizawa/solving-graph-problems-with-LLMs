@@ -6,7 +6,7 @@
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           MAIN ENTRY POINT                                 │
 │  ┌─────────────────────────────────────────────────────────────────────────┐ │
-│  │                  run_experiments_refactored.py                          │ │
+│  │                  run_experiments.py                          │ │
 │  │                          [CLI Interface]                               │ │
 │  └─────────────────────────────┬───────────────────────────────────────────┘ │
 └──────────────────────────────────┼─────────────────────────────────────────────┘
@@ -38,7 +38,7 @@
                  ┌─────────────────┐ ┌──────────────────┐
                  │ EXTERNAL DEPS   │ │ CORE FUNCTIONS   │
                  │                 │ │                  │
-                 │ networkx        │ │ new_functions.py │
+                 │ networkx        │ │ graph_algorithms.py │
                  │ json            │ │ utils.py         │
                  │ os              │ │                  │
                  │ tqdm            │ │ [Ground truth    │
@@ -51,7 +51,7 @@
 ## 🔄 Call Flow During Execution
 
 ```
-┌─ run_experiments_refactored.py ─┐
+┌─ run_experiments.py ─┐
 │ main()                          │
 │  ├─ ArgumentParser()            │
 │  ├─ ExperimentConfig() ─────────┼─── experiment_config.py
@@ -69,7 +69,7 @@
 │      │   ├─ load_experiment_data()┼─── file_io.py
 │      │   ├─ build_prompt() ─────┼─── prompt_builder.py
 │      │   ├─ get_openai_response()┼─── utils.py
-│      │   ├─ compute_ground_truth()┼─── result_processor.py → new_functions.py
+│      │   ├─ compute_ground_truth()┼─── result_processor.py → graph_algorithms.py
 │      │   └─ parse_answer() ─────┼─── result_processor.py → utils.py
 │      ├─ save_result_file() ─────┼─── file_io.py
 │      └─ save_experiment_summary()┼─── file_io.py
@@ -80,11 +80,11 @@
 
 | File | Imports From | Provides To |
 |------|-------------|-------------|
-| `run_experiments_refactored.py` | `experiment_config`, `experiment_runner` | *Entry Point* |
-| `experiment_runner.py` | `experiment_config`, `prompt_builder`, `result_processor`, `file_io`, `utils` | `run_experiments_refactored` |
+| `run_experiments.py` | `experiment_config`, `experiment_runner` | *Entry Point* |
+| `experiment_runner.py` | `experiment_config`, `prompt_builder`, `result_processor`, `file_io`, `utils` | `run_experiments` |
 | `experiment_config.py` | `os`, `dataclasses`, `typing` | `experiment_runner`, `prompt_builder`, `result_processor` |
 | `prompt_builder.py` | `experiment_config`, `typing` | `experiment_runner` |
-| `result_processor.py` | `new_functions`, `utils`, `typing` | `experiment_runner` |
+| `result_processor.py` | `graph_algorithms`, `utils`, `typing` | `experiment_runner` |
 | `file_io.py` | `os`, `json`, `networkx`, `typing` | `experiment_runner` |
 
 ## 🎯 Key Relationships
@@ -99,7 +99,7 @@
 - **Provides:** Configuration and path management
 - **Role:** Foundation layer
 
-### **Utilities: `utils.py` & `new_functions.py`**
+### **Utilities: `utils.py` & `graph_algorithms.py`**
 - **Imported by:** `result_processor`, `experiment_runner`
 - **Provides:** Core algorithms and API calls
 - **Role:** Implementation details
@@ -118,7 +118,7 @@ CLI Args → ExperimentConfig → PathManager → GraphDataLoader → Graph Data
                 ↓
          Formatted Prompt → OpenAI API → Raw Answer
                                             ↓
-ResultProcessor ← Ground Truth ← new_functions.py
+ResultProcessor ← Ground Truth ← graph_algorithms.py
        ↓              ↑
 Parsed Answer → Validation → Statistics → Summary Files
 ```
@@ -129,7 +129,7 @@ This follows a **"Hub and Spoke"** architecture:
 - **Hub:** `experiment_runner.py` (coordinates everything)
 - **Spokes:** Specialized modules for specific tasks
 - **Foundation:** `experiment_config.py` (used by multiple spokes)
-- **Utilities:** `utils.py` & `new_functions.py` (support functions)
+- **Utilities:** `utils.py` & `graph_algorithms.py` (support functions)
 
 ## 💡 Design Benefits
 

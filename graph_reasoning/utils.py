@@ -1,4 +1,4 @@
-from new_functions import *
+from .graph_algorithms import *
 import os
 import networkx as nx
 import argparse

@@ -3,8 +3,8 @@ Result processing and validation for graph reasoning experiments.
 """
 import re
 from typing import Union, List, Tuple, Any
-from new_functions import *
-from utils import *
+from .graph_algorithms import *
+from .utils import *
 
 
 class ResultProcessor:

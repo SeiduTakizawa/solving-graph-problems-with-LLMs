@@ -64,7 +64,7 @@ To understand the refactored graph reasoning experiments code, study the files i
 
 ---
 
-### 6️⃣ **`run_experiments_refactored.py`** 🚀
+### 6️⃣ **`run_experiments.py`** 🚀
 **Why last:** Simple entry point that ties everything together
 
 **What to focus on:**
@@ -96,7 +96,7 @@ To understand the refactored graph reasoning experiments code, study the files i
 ```bash
 # Read these to see how everything connects
 5. experiment_runner.py
-6. run_experiments_refactored.py
+6. run_experiments.py
 ```
 
 ## 🔍 What to Look For in Each File
@@ -131,7 +131,7 @@ To understand the refactored graph reasoning experiments code, study the files i
 - [ ] Result saving and statistics collection
 - [ ] Progress tracking with tqdm
 
-### `run_experiments_refactored.py`
+### `run_experiments.py`
 - [ ] Argument parsing setup
 - [ ] Configuration object creation
 - [ ] Single vs batch experiment modes

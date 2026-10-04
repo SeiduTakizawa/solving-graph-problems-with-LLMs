@@ -2,7 +2,7 @@
 Prompt building logic for different graph problems and methods.
 """
 from typing import Union, List
-from experiment_config import ExperimentConfig
+from .experiment_config import ExperimentConfig, PSEUDOCODE_DIR
 
 
 class PromptBuilder:
@@ -13,6 +13,10 @@ class PromptBuilder:
     
     def build_prompt(self, question: Union[str, List[str]]) -> Union[str, List[str]]:
         """Build the complete prompt based on configuration."""
+        # Work on a copy: callers still need the raw questions to extract node ids.
+        if isinstance(question, list):
+            question = list(question)
+
         if self.config.method in ["none", "cot", "bag"] or 'default' in self.config.method:
             return self._build_default_prompt(question)
         elif self.config.method in ["simplify_dif", "simplify_more"]:
@@ -74,7 +78,7 @@ class PromptBuilder:
         """Add default pseudocode to question."""
         try:
             name = self.config.method.replace("default", "")
-            with open(f"pseudocodes/{self.config.problem}{name}.txt", "r") as f:
+            with open(f"{PSEUDOCODE_DIR}/{self.config.problem}{name}.txt", "r") as f:
                 prompt = f.read()
             
             if isinstance(question, list):
@@ -91,11 +95,11 @@ class PromptBuilder:
         """Load pseudocode for algorithm methods."""
         try:
             if self.config.method == "alg":
-                with open(f"pseudocodes/{self.config.problem}.txt", "r") as f:
+                with open(f"{PSEUDOCODE_DIR}/{self.config.problem}.txt", "r") as f:
                     return f.read()
             elif 'pseudo' in self.config.method:
                 name = self.config.method.replace('pseudo', '')
-                with open(f"pseudocodes/{self.config.problem}_{name}pseudo.txt", "r", encoding="utf-8") as f:
+                with open(f"{PSEUDOCODE_DIR}/{self.config.problem}_{name}pseudo.txt", "r", encoding="utf-8") as f:
                     return f.read()
         except FileNotFoundError:
             pass

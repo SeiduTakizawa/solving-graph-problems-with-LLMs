@@ -5,6 +5,14 @@ import os
 from dataclasses import dataclass
 from typing import List, Optional
 
+# All paths are resolved from the repository root, so scripts work from any cwd.
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
+GRAPHS_DIR = os.path.join(DATA_DIR, 'graphs')
+QUESTIONS_DIR = os.path.join(DATA_DIR, 'graphs_questions')
+PSEUDOCODE_DIR = os.path.join(DATA_DIR, 'pseudocodes')
+RESULTS_DIR = os.path.join(PROJECT_ROOT, 'results')
+
 
 @dataclass
 class ExperimentConfig:
@@ -39,18 +47,18 @@ class PathManager:
     @property
     def graphs_dir(self) -> str:
         """Directory containing graph files."""
-        return os.path.join('graphs', self.config.type, self.config.size)
+        return os.path.join(GRAPHS_DIR, self.config.type, self.config.size)
     
     @property
     def questions_dir(self) -> str:
         """Directory containing question files."""
-        return os.path.join('graphs_questions', self.config.type, self.config.size)
+        return os.path.join(QUESTIONS_DIR, self.config.type, self.config.size)
     
     @property
     def results_dir(self) -> str:
         """Directory for storing results."""
         return os.path.join(
-            'exp_results', self.config.problem, self.config.adj, 
+            RESULTS_DIR, 'exp_results', self.config.problem, self.config.adj, 
             self.config.type, self.config.size, self.config.model, self.config.method
         )
     
@@ -58,7 +66,7 @@ class PathManager:
     def experiment_dir(self) -> str:
         """Directory for experiment summaries."""
         return os.path.join(
-            'experiments', self.config.problem, self.config.adj,
+            RESULTS_DIR, 'experiments', self.config.problem, self.config.adj,
             self.config.type, self.config.size, self.config.model
         )
     
@@ -90,7 +98,7 @@ def get_all_experiment_configs() -> List[ExperimentConfig]:
     problems = [
         "node_count", "edge_count", "node_degree", "connected_nodes", 
         "connected_components_count", "cycle_check", "shortest_path", 
-        "minimum_spanning_tree", "topological_sorting", "bipartite"
+        "mst", "topological_sorting", "bipartite"
     ]
     
     sizes = ["small", "medium", "large"]

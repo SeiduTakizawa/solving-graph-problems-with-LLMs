@@ -5,11 +5,11 @@ import os
 from typing import List, Union, Dict, Any
 from tqdm import tqdm
 
-from experiment_config import ExperimentConfig, PathManager
-from prompt_builder import PromptBuilder
-from result_processor import ResultProcessor, ExperimentResultCollector
-from file_io import FileManager, GraphDataLoader
-from utils import get_openai_response, get_graph_reasoning
+from .experiment_config import ExperimentConfig, PathManager
+from .prompt_builder import PromptBuilder
+from .result_processor import ResultProcessor, ExperimentResultCollector
+from .file_io import FileManager, GraphDataLoader
+from .utils import get_openai_response, get_graph_reasoning
 
 
 class SingleExperimentRunner:
@@ -121,10 +121,10 @@ class SingleExperimentRunner:
         # Handle special cases for MST and topological sorting
         if self.config.problem in ["mst", "topological_sorting"]:
             if self.config.problem == "mst":
-                from utils import mst_get_answer
+                from .utils import mst_get_answer
                 parsed_answers, ground_truth = mst_get_answer(answers, edgelist)
             elif self.config.problem == "topological_sorting":
-                from utils import topological_get_answer
+                from .utils import topological_get_answer
                 parsed_answers, ground_truth = topological_get_answer(answers, edgelist)
         
         # Handle connected_nodes special case
@@ -133,7 +133,7 @@ class SingleExperimentRunner:
             ground_truths = []
             for i, question in enumerate(original_questions):
                 node = self.result_processor._extract_node_from_question(question)
-                from utils import connected_nodes_get_answer
+                from .utils import connected_nodes_get_answer
                 parsed_ans, gt = connected_nodes_get_answer(answers[i], edgelist, node)
                 parsed_answers.append(parsed_ans)
                 ground_truths.append(gt)
@@ -206,6 +206,10 @@ class ExperimentRunner:
         """Run the complete experiment."""
         print(self.config)
         
+        if not os.path.isdir(self.path_manager.graphs_dir):
+            print(f"Skipping: no graph data at {self.path_manager.graphs_dir}")
+            return 0
+        
         # Setup paths and directories
         self.path_manager.ensure_directories_exist()
         
@@ -236,6 +240,11 @@ class ExperimentRunner:
             
             if result_info['is_correct']:
                 print("Correct")
+        
+        if self.result_collector.total_count == 0:
+            # Don't write a summary, or --all would treat this run as done.
+            print(f"Skipping: no '{self.config.problem}' questions in {self.path_manager.questions_dir}")
+            return 0
         
         # Save experiment summary
         self._save_experiment_summary()
@@ -287,7 +296,7 @@ def run_single_experiment(config: ExperimentConfig) -> float:
 
 def run_all_experiments():
     """Run all experiments in batch mode."""
-    from experiment_config import get_all_experiment_configs
+    from .experiment_config import get_all_experiment_configs
     
     configs = get_all_experiment_configs()
     

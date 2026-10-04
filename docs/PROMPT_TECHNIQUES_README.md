@@ -22,18 +22,18 @@ This codebase implements a comprehensive framework for testing various prompt en
 
 ### 4. **Algorithm-Based** (`alg`)
 - **Description**: Provides algorithmic pseudocode for the specific problem
-- **Files**: Located in `pseudocodes/{problem}.txt`
+- **Files**: Located in `data/pseudocodes/{problem}.txt`
 - **Usage**: Prepends algorithm description to guide systematic problem solving
 - **Example Instructions**: "Follow the provided pseudocode step-by-step and show all steps."
 
 ### 5. **One-Shot Examples** (`default_1_shot`)
 - **Description**: Includes a worked example before the actual question
-- **Files**: Located in `pseudocodes/{problem}_1_shot.txt`
+- **Files**: Located in `data/pseudocodes/{problem}_1_shot.txt`
 - **Usage**: Provides context through example problem-solution pairs
 
 ### 6. **One-Shot with Pseudocode** (`1_shot_pseudo`)
 - **Description**: Combines one-shot examples with algorithmic pseudocode
-- **Files**: Located in `pseudocodes/{problem}_1_shot_pseudo.txt`
+- **Files**: Located in `data/pseudocodes/{problem}_1_shot_pseudo.txt`
 - **Usage**: Most comprehensive approach combining examples and algorithms
 
 ### 7. **Simplification Methods**
@@ -183,8 +183,8 @@ For problems requiring multiple questions:
 ```
 graphs/{type}/{size}/          # Graph files (.txt)
 graphs_questions/{type}/{size}/ # Question files (.txt)  
-pseudocodes/                   # Algorithm prompts
-exp_results/                   # Detailed results
+data/pseudocodes/              # Algorithm prompts
+results/exp_results/           # Detailed results
 experiments/                   # Summary statistics
 ```
 

@@ -71,7 +71,7 @@ The new architecture splits the monolith into **6 focused modules**, each with a
 - Progress tracking and result aggregation
 - Modular pipeline that's easy to modify
 
-### 6. `run_experiments_refactored.py` - Main Entry Point
+### 6. `run_experiments.py` - Main Entry Point
 - Clean CLI interface with argument parsing
 - Same command-line arguments as original for backward compatibility
 - Simple orchestration of the experiment pipeline
@@ -85,7 +85,7 @@ python run_experiments.py --problem node_count --method cot --size small
 
 ### After (Refactored)
 ```bash
-python run_experiments_refactored.py --problem node_count --method cot --size small
+python run_experiments.py --problem node_count --method cot --size small
 ```
 
 **The command-line interface is identical** - no changes needed for existing scripts!
@@ -150,7 +150,7 @@ print('✅ File I/O test passed:', exists)
 
 #### 5. Test CLI Interface
 ```bash
-python run_experiments_refactored.py --help
+python run_experiments.py --help
 ```
 
 Expected output should show all command-line options identical to the original.
@@ -166,10 +166,10 @@ from experiment_runner import ExperimentRunner
 import os
 
 # Only run if test data exists
-if os.path.exists('graphs/er/small') and os.path.exists('graphs_questions/er/small'):
+if os.path.exists('data/graphs/er/small') and os.path.exists('data/graphs_questions/er/small'):
     config = ExperimentConfig(problem='node_count', method='none', size='small')
     print('✅ Integration test setup ready')
-    print('Run: python run_experiments_refactored.py --problem node_count --method none --size small')
+    print('Run: python run_experiments.py --problem node_count --method none --size small')
 else:
     print('⚠️  Test data not found - create sample graphs to test')
 "
@@ -188,7 +188,7 @@ python run_experiments_original.py --problem node_count --method none --size sma
 
 2. **Run refactored version**:
 ```bash
-python run_experiments_refactored.py --problem node_count --method none --size small
+python run_experiments.py --problem node_count --method none --size small
 ```
 
 3. **Compare outputs**:
@@ -198,8 +198,8 @@ diff experiments/node_count/edgelist/er/small/gpt-3.5-turbo/none.txt \
      experiments/node_count/edgelist/er/small/gpt-3.5-turbo/none.txt
 
 # Compare individual results
-diff exp_results/node_count/edgelist/er/small/gpt-3.5-turbo/none/ \
-     exp_results/node_count/edgelist/er/small/gpt-3.5-turbo/none/
+diff results/exp_results/node_count/edgelist/er/small/gpt-3.5-turbo/none/ \
+     results/exp_results/node_count/edgelist/er/small/gpt-3.5-turbo/none/
 ```
 
 ## 🐛 Troubleshooting
@@ -224,7 +224,7 @@ pip install networkx tqdm openai tenacity
 # Check if required directories exist
 python -c "
 import os
-required_dirs = ['graphs', 'graphs_questions', 'pseudocodes']
+required_dirs = ['data/graphs', 'data/graphs_questions', 'data/pseudocodes']
 for d in required_dirs:
     exists = os.path.exists(d)
     print(f'{d}: {'✅' if exists else '❌'} {exists}')
@@ -264,7 +264,7 @@ print('✅ OpenAI client initialized')
 
 ### Single Experiment
 ```bash
-python run_experiments_refactored.py \
+python run_experiments.py \
     --problem cycle_check \
     --method cot \
     --size medium \
@@ -273,7 +273,7 @@ python run_experiments_refactored.py \
 
 ### Batch Experiments
 ```bash
-python run_experiments_refactored.py --all
+python run_experiments.py --all
 ```
 
 ### Custom Configuration

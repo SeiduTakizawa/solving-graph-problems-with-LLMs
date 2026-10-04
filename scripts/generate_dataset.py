@@ -388,12 +388,16 @@ def create_dataset():
           questions[algorithm][graph_sizes][graph_idx]['edgelist']['bipartite']  = edgelist_start + edgelist + bipartite
   return Gs, questions
 
+# Written next to the repo's data/ folder regardless of the cwd.
+# NOTE: re-running overwrites the committed dataset in data/.
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+
 Gs, questions = create_dataset()
 
 for G in Gs.keys():
     for g_type in Gs[G].keys():
-        graph_directory = "graphs/"+G+"/"+g_type
-        question_directory = "graphs_questions/"+G+"/"+g_type
+        graph_directory = os.path.join(DATA_DIR, "graphs", G, g_type)
+        question_directory = os.path.join(DATA_DIR, "graphs_questions", G, g_type)
 
         if not os.path.exists(graph_directory):
             os.makedirs(graph_directory)
