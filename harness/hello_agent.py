@@ -1,11 +1,11 @@
 """Your first agent: a model + graph tools + a loop. The tools live in harness/tools/graph_tools.py.
 
 Run it:   uv run python -m harness.hello_agent "What is the degree of node 4?"
+          uv run python -m harness.hello_agent "Is there a cycle in G?" --answer-type yes_no
 Test it:  uv run pytest tests/test_hello_agent.py
 """
 import json
 import re
-import sys
 import time
 from dataclasses import dataclass
 
@@ -23,19 +23,45 @@ SYSTEM_PROMPT = (
     "If the question cannot be answered with the available tools, call cannot_answer instead of guessing."
 )
 
-# Ending tools. Not graph tools: the loop handles them itself instead of calling run_tool.
-SUBMIT_ANSWER = {
-    "type": "function",
-    "function": {
-        "name": "submit_answer",
-        "description": "Submit your final answer. This ends the task.",
-        "parameters": {
-            "type": "object",
-            "properties": {"answer": {"type": "integer"}},
-            "required": ["answer"],
-        },
-    },
+# The shape of the final answer, per kind of question. submit_answer is built to match.
+ANSWER_TYPES = {
+    "number": {"schema": {"type": "integer"}, "description": "a whole number"},
+    "yes_no": {"schema": {"type": "boolean"}, "description": "true or false"},
+    "node_list": {"schema": {"type": "array", "items": {"type": "integer"}}, "description": "a list of node ids"},
 }
+
+
+def make_submit_answer(answer_type: str) -> dict:
+    """The submit_answer tool for one answer type. Ends the task; the loop handles it itself."""
+    expected = ANSWER_TYPES[answer_type]
+    return {
+        "type": "function",
+        "function": {
+            "name": "submit_answer",
+            "description": f"Submit your final answer, which must be {expected['description']}. This ends the task.",
+            "parameters": {
+                "type": "object",
+                "properties": {"answer": expected["schema"]},
+                "required": ["answer"],
+            },
+        },
+    }
+
+
+def check_answer(answer, answer_type: str) -> str | None:
+    """None if the answer has the right shape, otherwise an error message for the model."""
+    # Careful: in Python True/False are also ints, so a number must not be a bool and vice versa.
+    is_int = lambda x: isinstance(x, int) and not isinstance(x, bool)
+    ok = {
+        "number": is_int(answer),
+        "yes_no": isinstance(answer, bool),
+        "node_list": isinstance(answer, list) and all(is_int(x) for x in answer),
+    }[answer_type]
+    if ok:
+        return None
+    return (f"Invalid answer {json.dumps(answer)}: the answer must be {ANSWER_TYPES[answer_type]['description']}. "
+            "Call submit_answer again with the right type.")
+
 
 CANNOT_ANSWER = {
     "type": "function",
@@ -51,8 +77,7 @@ CANNOT_ANSWER = {
     },
 }
 
-TOOLS = GRAPH_TOOLS + [SUBMIT_ANSWER, CANNOT_ANSWER]
-TOOL_NAMES = [t["function"]["name"] for t in TOOLS]
+TOOL_NAMES = [t["function"]["name"] for t in GRAPH_TOOLS] + ["submit_answer", "cannot_answer"]
 
 # Sent when the model replies with plain text instead of calling a tool.
 NUDGE = (
@@ -70,20 +95,20 @@ MAX_REPEATS = 3  # stop if the model sends the same reply this many times in a r
 
 @dataclass
 class RunResult:
-    answer: int | None
+    answer: int | bool | list[int] | None
     status: str  # "submitted", "cannot_answer", "max_steps" or "loop_detected"
     messages: list[dict]
     reason: str | None = None  # why it could not answer, or why the run was stopped
 
 
-def call_model(messages: list[dict]) -> dict:
-    """Send the conversation to the model, return its reply as a plain dict.
+def call_model(messages: list[dict], tools: list[dict]) -> dict:
+    """Send the conversation and the available tools to the model, return its reply as a plain dict.
 
     Token counts and latency go under "extra"; run_agent removes it before the reply
     joins the history, so the model never sees it.
     """
     start = time.time()
-    response = litellm.completion(model=MODEL, messages=messages, tools=TOOLS)
+    response = litellm.completion(model=MODEL, messages=messages, tools=tools)
     reply = response.choices[0].message.model_dump()
     reply["extra"] = {
         "prompt_tokens": response.usage.prompt_tokens,
@@ -109,9 +134,11 @@ def reply_signature(reply: dict) -> tuple:
     return (reply.get("content") or "").strip(), calls
 
 
-def run_agent(question: str, graph: nx.Graph, call_model=call_model, max_steps: int = 10,
-              trace: Trace | None = None) -> RunResult:
+def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", call_model=call_model,
+              max_steps: int = 10, trace: Trace | None = None) -> RunResult:
     """Run the agent loop until the model submits, gives up, repeats itself, or runs out of steps.
+
+    answer_type ("number", "yes_no" or "node_list") sets what submit_answer accepts.
 
     If a Trace is given, every model call, tool call and the outcome are logged to it.
     """
@@ -126,12 +153,13 @@ def run_agent(question: str, graph: nx.Graph, call_model=call_model, max_steps: 
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": question},
     ]
-    log("run_start", model=MODEL, question=question, max_steps=max_steps)
+    tools = GRAPH_TOOLS + [make_submit_answer(answer_type), CANNOT_ANSWER]
+    log("run_start", model=MODEL, question=question, answer_type=answer_type, max_steps=max_steps)
     previous, repeats = None, 0
 
     for step in range(1, max_steps + 1):
         # 1. Ask the model, and remember what it said.
-        reply = call_model(messages)
+        reply = call_model(messages, tools)
         stats = reply.pop("extra", {})  # bookkeeping only, not part of the conversation
         for key in totals:
             totals[key] += stats.get(key, 0)
@@ -152,14 +180,17 @@ def run_agent(question: str, graph: nx.Graph, call_model=call_model, max_steps: 
             args = json.loads(call["function"]["arguments"])  # arguments arrive as a JSON string
 
             if name == "submit_answer":
-                return finish(args.get("answer"), "submitted", step)
-            if name == "cannot_answer":
+                error = check_answer(args.get("answer"), answer_type)
+                if error is None:
+                    return finish(args["answer"], "submitted", step)
+                result = {"error": error}  # wrong shape: tell the model and let it try again
+            elif name == "cannot_answer":
                 return finish(None, "cannot_answer", step, reason=args.get("reason"))
-
-            try:
-                result = run_tool(graph, name, args)
-            except Exception as e:  # a buggy tool must not kill the agent
-                result = {"error": f"Tool {name} crashed: {e}"}
+            else:
+                try:
+                    result = run_tool(graph, name, args)
+                except Exception as e:  # a buggy tool must not kill the agent
+                    result = {"error": f"Tool {name} crashed: {e}"}
             log("tool_call", step=step, name=name, args=args, result=result)
             messages.append({
                 "role": "tool",
@@ -177,10 +208,16 @@ def run_agent(question: str, graph: nx.Graph, call_model=call_model, max_steps: 
 
 
 if __name__ == "__main__":
-    question = sys.argv[1] if len(sys.argv) > 1 else "What is the biggest clique in the graph?"
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Ask the agent one question about data/graphs/er/small/0.txt.")
+    parser.add_argument("question", nargs="?", default="What is the degree of node 4?")
+    parser.add_argument("--answer-type", default="number", choices=list(ANSWER_TYPES))
+    args = parser.parse_args()
+
     graph = nx.read_adjlist("data/graphs/er/small/0.txt", nodetype=int)
     trace = Trace("results/harness_runs/hello_agent.jsonl")
-    result = run_agent(question, graph, trace=trace)
+    result = run_agent(args.question, graph, answer_type=args.answer_type, trace=trace)
 
     for m in result.messages:
         print(f"[{m['role']}]", m.get("content") or "", m.get("tool_calls") or "")

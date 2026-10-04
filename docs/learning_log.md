@@ -139,3 +139,18 @@ Sonnet wrote one script, `nx.is_forest(G)` plus node/edge counts, and got it rig
   the tools (`has_cycle` does it for qwen3).
 - **Not a fair comparison:** different models, one run, a tiny graph. The real version is M6: same model,
   same tools, many questions.
+
+---
+
+## 2026-10-04: Per-task answer types
+
+`run_agent(..., answer_type=...)` with `number`, `yes_no` or `node_list`. `submit_answer` is built per type
+(the model sees e.g. `answer: boolean`), and `check_answer` validates the submitted value. A wrong shape goes
+back to the model as an error ("must be true or false") instead of ending the run. In Python `True` is an
+`int`, so `number` rejects booleans and `yes_no` rejects 0/1.
+
+Real model: cycle → `False` (was `0`), path 0→5 → `[0, 2, 4, 5]`, components → `2`. Neighbors of node 4 lost
+the correct `[2, 5]` to the text-tool-call bug again (3rd time overall, after graph 14 and node 10990).
+
+**Open decision:** rescue tool calls written as text (lenient, logged as rescued, so both numbers can be
+reported) or keep counting them as failures (strict).

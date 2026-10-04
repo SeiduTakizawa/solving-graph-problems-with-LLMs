@@ -3,7 +3,7 @@ import json
 
 import networkx as nx
 
-from harness.hello_agent import FORMAT_ERROR, NUDGE, run_agent
+from harness.hello_agent import FORMAT_ERROR, NUDGE, check_answer, run_agent
 from harness.trace import Trace, read_trace
 
 # Same graph as data/graphs/er/small/0.txt; node 4 has neighbors [2, 5].
@@ -27,7 +27,7 @@ def text_reply(text):
 def fake_model(*replies):
     """A 'model' that returns the given replies in order."""
     script = iter(replies)
-    return lambda messages: next(script)
+    return lambda messages, tools: next(script)
 
 
 def with_stats(reply, prompt_tokens=100, completion_tokens=20, latency_s=0.5):
@@ -73,7 +73,7 @@ def test_message_history_order():
 def test_stops_after_max_steps():
     # A model that asks about a different node each time (so it is not a repeat loop).
     nodes = iter(range(100))
-    wandering = lambda messages: tool_call("get_neighbors", {"node": next(nodes) % 7})
+    wandering = lambda messages, tools: tool_call("get_neighbors", {"node": next(nodes) % 7})
     result = run_agent(QUESTION, GRAPH, call_model=wandering, max_steps=3)
     assert result.answer is None
     assert result.status == "max_steps"
@@ -94,6 +94,57 @@ def test_crashing_tool_does_not_crash_agent(monkeypatch):
     assert result.answer == 5  # the agent kept going after the crash
     tool_msg = next(m for m in result.messages if m["role"] == "tool")
     assert "EdgeView" in json.loads(tool_msg["content"])["error"]  # and the model saw the error
+
+
+# --- Answer types (the cycle question was answered with 0 for "no") ---
+
+def test_yes_no_answer():
+    model = fake_model(tool_call("submit_answer", {"answer": False}))
+    result = run_agent("Is there a cycle in G?", GRAPH, answer_type="yes_no", call_model=model)
+    assert result.status == "submitted" and result.answer is False
+
+
+def test_node_list_answer():
+    model = fake_model(tool_call("submit_answer", {"answer": [2, 5]}))
+    result = run_agent("Which nodes are the neighbors of node 4?", GRAPH, answer_type="node_list", call_model=model)
+    assert result.answer == [2, 5]
+
+
+def test_wrong_answer_type_is_sent_back_to_the_model():
+    model = fake_model(
+        tool_call("submit_answer", {"answer": 0}, call_id="call_A"),      # 0 instead of false
+        tool_call("submit_answer", {"answer": False}, call_id="call_B"),
+    )
+    result = run_agent("Is there a cycle in G?", GRAPH, answer_type="yes_no", call_model=model)
+
+    assert result.status == "submitted" and result.answer is False  # second try accepted
+    error = json.loads(result.messages[3]["content"])["error"]
+    assert result.messages[3]["tool_call_id"] == "call_A"
+    assert "true or false" in error
+
+
+def test_model_is_offered_the_right_answer_type():
+    seen = {}
+
+    def model(messages, tools):
+        submit = next(t for t in tools if t["function"]["name"] == "submit_answer")
+        seen["schema"] = submit["function"]["parameters"]["properties"]["answer"]
+        return tool_call("submit_answer", {"answer": True})
+
+    run_agent("Is there a cycle in G?", GRAPH, answer_type="yes_no", call_model=model)
+    assert seen["schema"] == {"type": "boolean"}
+
+
+def test_check_answer():
+    assert check_answer(3, "number") is None
+    assert check_answer(True, "number") is not None   # in Python True is an int; not a number answer
+    assert check_answer("3", "number") is not None
+    assert check_answer(False, "yes_no") is None
+    assert check_answer(0, "yes_no") is not None
+    assert check_answer([1, 2], "node_list") is None
+    assert check_answer([], "node_list") is None
+    assert check_answer(2, "node_list") is not None
+    assert check_answer([1, True], "node_list") is not None
 
 
 # --- Giving up honestly (the node-99 and clique runs) ---
@@ -144,7 +195,7 @@ def test_prose_mentioning_tools_is_not_a_format_error():
 # --- Loop detection (the node-10990 run repeated itself 9 times) ---
 
 def test_repeated_text_reply_stops_the_run():
-    stuck = lambda messages: text_reply('submit_answer\n{"answer": 0}\n</tool_call>')
+    stuck = lambda messages, tools: text_reply('submit_answer\n{"answer": 0}\n</tool_call>')
     result = run_agent("Get neighbors of node 10990", GRAPH, call_model=stuck, max_steps=10)
     assert result.status == "loop_detected"
     assert roles(result).count("assistant") == 3  # stopped early, not after 10
@@ -153,7 +204,7 @@ def test_repeated_text_reply_stops_the_run():
 def test_repeated_tool_call_stops_the_run():
     # Same call each time, with a fresh random id like a real model would send.
     ids = iter(range(100))
-    stuck = lambda messages: tool_call("get_neighbors", {"node": 4}, call_id=f"call_{next(ids)}")
+    stuck = lambda messages, tools: tool_call("get_neighbors", {"node": 4}, call_id=f"call_{next(ids)}")
     result = run_agent(QUESTION, GRAPH, call_model=stuck, max_steps=10)
     assert result.status == "loop_detected"
 
