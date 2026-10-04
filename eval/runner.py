@@ -70,14 +70,15 @@ def run(args) -> Path:
                 start = time.time()
                 try:
                     result = run_agent(task["question"], graph, trace=trace)
-                    answer, status = result.answer, result.status
+                    answer, status, rescued = result.answer, result.status, result.rescued
                 except Exception as e:  # e.g. Ollama not running; record it and keep going
-                    answer, status = None, f"error: {e}"
+                    answer, status, rescued = None, f"error: {e}", 0
                 end = _run_end(trace)
 
                 row = {
                     "run": run_no, "run_id": trace.run_id, "model": MODEL, "size": args.size, "split": args.split,
                     **task, "truth": truth, "answer": answer, "correct": answer == truth, "status": status,
+                    "rescued": rescued,
                     "steps": end.get("steps"), "prompt_tokens": end.get("prompt_tokens"),
                     "completion_tokens": end.get("completion_tokens"),
                     "latency_s": round(time.time() - start, 2),
@@ -115,6 +116,12 @@ def summarize(out_dir: Path) -> None:
         print(f"run {run_no}: accuracy {acc:.1%}{note}")
     if len(runs) > 1:
         print(f"mean accuracy {statistics.mean(accuracies):.1%} (std {statistics.stdev(accuracies):.1%})")
+
+    # Lenient accuracy counts answers the harness rescued from text; strict accuracy does not.
+    strict = [statistics.mean(r["correct"] and not r.get("rescued") for r in per_run[run_no]) for run_no in runs]
+    n_rescued = sum(1 for r in rows if r.get("rescued"))
+    print(f"strict accuracy (no rescued tool calls): {statistics.mean(strict):.1%}"
+          f" | runs with a rescued tool call: {n_rescued}/{len(rows)}")
 
     print("\nhow runs ended:", dict(Counter(r["status"] for r in rows).most_common()))
     wrong = [r for r in rows if r["status"] == "submitted" and not r["correct"]]

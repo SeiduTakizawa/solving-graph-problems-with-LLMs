@@ -99,6 +99,8 @@ class RunResult:
     status: str  # "submitted", "cannot_answer", "max_steps" or "loop_detected"
     messages: list[dict]
     reason: str | None = None  # why it could not answer, or why the run was stopped
+    rescued: int = 0  # tool calls written as text that the harness parsed and ran anyway
+    rejected: int = 0  # submitted answers the verifier sent back
 
 
 def call_model(messages: list[dict], tools: list[dict]) -> dict:
@@ -128,6 +130,38 @@ def looks_like_text_tool_call(content: str | None) -> bool:
     return re.search(rf"^\s*({names})\s*\(?\s*\{{", content, re.MULTILINE) is not None
 
 
+def parse_text_tool_call(content: str | None) -> tuple[str, dict] | None:
+    """Recover a tool call the model wrote as text instead of calling it. Returns (name, args) or None.
+
+    Handles the two forms qwen3 produces:
+      submit_answer\n{"answer": [2, 5]}\n</tool_call>                        (name, then arguments)
+      <tool_call>{"name": "get_neighbors", "arguments": {"node": 4}}</tool_call>  (its own format)
+    """
+    if not content:
+        return None
+    decoder = json.JSONDecoder()
+
+    def json_at(index):
+        try:
+            value, _ = decoder.raw_decode(content, index)
+            return value
+        except json.JSONDecodeError:
+            return None
+
+    for match in re.finditer(r"\{", content):
+        value = json_at(match.start())
+        if (isinstance(value, dict) and value.get("name") in TOOL_NAMES
+                and isinstance(value.get("arguments"), dict)):
+            return value["name"], value["arguments"]
+
+    names = "|".join(TOOL_NAMES)
+    for match in re.finditer(rf"^\s*({names})\s*\(?\s*(?=\{{)", content, re.MULTILINE):
+        value = json_at(match.end())
+        if isinstance(value, dict):
+            return match.group(1), value
+    return None
+
+
 def reply_signature(reply: dict) -> tuple:
     """What the model said, ignoring the random tool-call ids, so identical replies compare equal."""
     calls = tuple((c["function"]["name"], c["function"]["arguments"]) for c in reply.get("tool_calls") or [])
@@ -135,26 +169,34 @@ def reply_signature(reply: dict) -> tuple:
 
 
 def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", call_model=call_model,
-              max_steps: int = 10, trace: Trace | None = None) -> RunResult:
+              max_steps: int = 10, trace: Trace | None = None, rescue: bool = True,
+              verify=None) -> RunResult:
     """Run the agent loop until the model submits, gives up, repeats itself, or runs out of steps.
 
     answer_type ("number", "yes_no" or "node_list") sets what submit_answer accepts.
+    rescue: run tool calls the model wrote as text (each one is logged as rescued_tool_call).
+    With rescue=False they only get a FORMAT_ERROR (strict mode).
+    verify: optional check of the final answer, verify(answer) -> error message or None.
+    A rejected answer goes back to the model as an error, like a wrong answer type.
 
     If a Trace is given, every model call, tool call and the outcome are logged to it.
     """
     log = trace.log if trace else (lambda event, **data: None)
     totals = {"prompt_tokens": 0, "completion_tokens": 0, "latency_s": 0.0}
+    rescued = rejected = 0
 
     def finish(answer, status, steps, reason=None):
-        log("run_end", answer=answer, status=status, reason=reason, steps=steps, **totals)
-        return RunResult(answer, status, messages, reason)
+        log("run_end", answer=answer, status=status, reason=reason, steps=steps, rescued=rescued,
+            rejected=rejected, **totals)
+        return RunResult(answer, status, messages, reason, rescued, rejected)
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": question},
     ]
     tools = GRAPH_TOOLS + [make_submit_answer(answer_type), CANNOT_ANSWER]
-    log("run_start", model=MODEL, question=question, answer_type=answer_type, max_steps=max_steps)
+    log("run_start", model=MODEL, question=question, answer_type=answer_type, max_steps=max_steps,
+        rescue=rescue, verified=verify is not None)
     previous, repeats = None, 0
 
     for step in range(1, max_steps + 1):
@@ -165,6 +207,16 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", call_
             totals[key] += stats.get(key, 0)
         messages.append(reply)
         log("model_call", step=step, content=reply.get("content"), tool_calls=reply.get("tool_calls"), **stats)
+
+        # Lenient mode: a tool call written as text is turned into a real one (and logged as such).
+        if rescue and not reply.get("tool_calls"):
+            parsed = parse_text_tool_call(reply.get("content"))
+            if parsed:
+                name, args = parsed
+                reply["tool_calls"] = [{"id": f"rescued_{step}", "type": "function",
+                                        "function": {"name": name, "arguments": json.dumps(args)}}]
+                rescued += 1
+                log("rescued_tool_call", step=step, name=name, args=args)
 
         # Stuck? The same reply MAX_REPEATS times in a row will not get any better.
         signature = reply_signature(reply)
@@ -181,9 +233,14 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", call_
 
             if name == "submit_answer":
                 error = check_answer(args.get("answer"), answer_type)
+                if error is None and verify is not None:
+                    error = verify(args["answer"])  # right type; is it also a valid answer?
+                    if error:
+                        rejected += 1
+                        log("verifier_rejected", step=step, answer=args["answer"], error=error)
                 if error is None:
                     return finish(args["answer"], "submitted", step)
-                result = {"error": error}  # wrong shape: tell the model and let it try again
+                result = {"error": error}  # wrong shape or invalid: tell the model and let it try again
             elif name == "cannot_answer":
                 return finish(None, "cannot_answer", step, reason=args.get("reason"))
             else:
@@ -211,11 +268,11 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Ask the agent one question about data/graphs/er/small/0.txt.")
-    parser.add_argument("question", nargs="?", default="What is the degree of node 4?")
+    parser.add_argument("question", nargs="?", default="is there any cycles?")
     parser.add_argument("--answer-type", default="number", choices=list(ANSWER_TYPES))
     args = parser.parse_args()
 
-    graph = nx.read_adjlist("data/graphs/er/small/0.txt", nodetype=int)
+    graph = nx.read_adjlist("data/graphs/er/large/0.txt", nodetype=int)
     trace = Trace("results/harness_runs/hello_agent.jsonl")
     result = run_agent(args.question, graph, answer_type=args.answer_type, trace=trace)
 

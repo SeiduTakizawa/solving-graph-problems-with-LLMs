@@ -5,6 +5,7 @@ import networkx as nx
 
 from harness.hello_agent import FORMAT_ERROR, NUDGE, check_answer, run_agent
 from harness.trace import Trace, read_trace
+from harness.verifiers import verify_shortest_path
 
 # Same graph as data/graphs/er/small/0.txt; node 4 has neighbors [2, 5].
 GRAPH = nx.Graph([(0, 2), (1, 6), (2, 4), (3, 5), (4, 5)])
@@ -147,6 +148,62 @@ def test_check_answer():
     assert check_answer([1, True], "node_list") is not None
 
 
+# --- Verifier: a wrong final answer goes back to the model ---
+
+PATH_QUESTION = "What is the shortest path from node 0 to node 5?"
+check_path_0_to_5 = lambda answer: verify_shortest_path(GRAPH, {"source": 0, "target": 5}, answer)
+
+
+def test_verifier_rejects_then_accepts():
+    model = fake_model(
+        tool_call("submit_answer", {"answer": [0, 5]}, call_id="call_A"),        # 0-5 is not an edge
+        tool_call("submit_answer", {"answer": [0, 2, 4, 5]}, call_id="call_B"),  # the real shortest path
+    )
+    result = run_agent(PATH_QUESTION, GRAPH, answer_type="node_list", call_model=model, verify=check_path_0_to_5)
+
+    assert result.status == "submitted" and result.answer == [0, 2, 4, 5]
+    assert result.rejected == 1
+    feedback = result.messages[3]
+    assert feedback["tool_call_id"] == "call_A"
+    assert json.loads(feedback["content"]) == {"error": "0-5 is not an edge in G."}
+
+
+def test_valid_answer_passes_the_verifier():
+    model = fake_model(tool_call("submit_answer", {"answer": [0, 2, 4, 5]}))
+    result = run_agent(PATH_QUESTION, GRAPH, answer_type="node_list", call_model=model, verify=check_path_0_to_5)
+    assert result.answer == [0, 2, 4, 5] and result.rejected == 0
+
+
+def test_verifier_only_sees_answers_of_the_right_type():
+    seen = []
+
+    def verify(answer):
+        seen.append(answer)
+        return None
+
+    model = fake_model(
+        tool_call("submit_answer", {"answer": 5}),          # wrong type: stopped by check_answer first
+        tool_call("submit_answer", {"answer": [0, 2, 4, 5]}),
+    )
+    run_agent(PATH_QUESTION, GRAPH, answer_type="node_list", call_model=model, verify=verify)
+    assert seen == [[0, 2, 4, 5]]
+
+
+def test_verifier_rejection_is_logged(tmp_path):
+    trace = Trace(tmp_path / "run.jsonl")
+    model = fake_model(
+        tool_call("submit_answer", {"answer": [0, 5]}),
+        tool_call("submit_answer", {"answer": [0, 2, 4, 5]}),
+    )
+    run_agent(PATH_QUESTION, GRAPH, answer_type="node_list", call_model=model, verify=check_path_0_to_5,
+              trace=trace)
+
+    events = read_trace(trace.path)
+    rejected = [e for e in events if e["event"] == "verifier_rejected"]
+    assert len(rejected) == 1 and rejected[0]["answer"] == [0, 5]
+    assert events[-1]["rejected"] == 1 and events[0]["verified"] is True
+
+
 # --- Giving up honestly (the node-99 and clique runs) ---
 
 def test_cannot_answer_ends_the_run():
@@ -172,14 +229,26 @@ def test_text_reply_gets_a_nudge():
     assert "cannot_answer" in NUDGE  # no pressure to guess: giving up is offered
 
 
-def test_tool_call_written_as_text_gets_a_format_error():
-    # Exactly what qwen3 wrote in the node-10990 run.
+def test_strict_mode_gives_a_format_error():
+    # Exactly what qwen3 wrote in the node-10990 run; with rescue off it is not executed.
     model = fake_model(
         text_reply('submit_answer\n{"answer": 0}\n</tool_call>'),
         tool_call("submit_answer", {"answer": 0}),
     )
-    result = run_agent("Get neighbors of node 10990", GRAPH, call_model=model)
+    result = run_agent("Get neighbors of node 10990", GRAPH, call_model=model, rescue=False)
     assert result.messages[3]["content"] == FORMAT_ERROR
+    assert result.rescued == 0
+
+
+def test_unparseable_text_tool_call_gets_a_format_error():
+    # Looks like a tool call but the JSON is broken, so even lenient mode can't run it.
+    model = fake_model(
+        text_reply('submit_answer\n{"answer": }\n</tool_call>'),
+        tool_call("submit_answer", {"answer": 2}),
+    )
+    result = run_agent(QUESTION, GRAPH, call_model=model)
+    assert result.messages[3]["content"] == FORMAT_ERROR
+    assert result.rescued == 0
 
 
 def test_prose_mentioning_tools_is_not_a_format_error():
@@ -192,11 +261,60 @@ def test_prose_mentioning_tools_is_not_a_format_error():
     assert result.messages[3]["content"] == NUDGE
 
 
+# --- Lenient mode: tool calls written as text are rescued (graph 14, node 10990, neighbors runs) ---
+
+def test_rescues_submit_written_as_text():
+    # The neighbors-of-node-4 run: correct answer, written as text.
+    model = fake_model(
+        tool_call("get_neighbors", {"node": 4}),
+        text_reply('The neighbors of node 4 are nodes 2 and 5.\n\nsubmit_answer\n{"answer": [2, 5]}\n</tool_call>'),
+    )
+    result = run_agent("Which nodes are the neighbors of node 4?", GRAPH, answer_type="node_list", call_model=model)
+    assert result.status == "submitted" and result.answer == [2, 5]
+    assert result.rescued == 1
+
+
+def test_rescues_graph_tool_in_qwen_format():
+    model = fake_model(
+        text_reply('<tool_call>\n{"name": "get_neighbors", "arguments": {"node": 4}}\n</tool_call>'),
+        tool_call("submit_answer", {"answer": 2}),
+    )
+    result = run_agent(QUESTION, GRAPH, call_model=model)
+
+    assert result.answer == 2 and result.rescued == 1
+    # The history stays valid: the rescued call gets an id, and the tool result answers that id.
+    call = result.messages[2]["tool_calls"][0]
+    tool_msg = result.messages[3]
+    assert tool_msg["role"] == "tool" and tool_msg["tool_call_id"] == call["id"]
+    assert json.loads(tool_msg["content"]) == {"neighbors": [2, 5]}
+
+
+def test_rescued_answer_is_still_type_checked():
+    model = fake_model(
+        text_reply('submit_answer\n{"answer": 0}\n</tool_call>'),  # 0 for a yes/no question
+        tool_call("submit_answer", {"answer": False}),
+    )
+    result = run_agent("Is there a cycle in G?", GRAPH, answer_type="yes_no", call_model=model)
+    assert result.answer is False and result.rescued == 1
+    assert "true or false" in json.loads(result.messages[3]["content"])["error"]
+
+
+def test_rescue_is_logged(tmp_path):
+    trace = Trace(tmp_path / "run.jsonl")
+    model = fake_model(text_reply('submit_answer\n{"answer": 2}\n</tool_call>'))
+    run_agent(QUESTION, GRAPH, call_model=model, trace=trace)
+
+    events = read_trace(trace.path)
+    assert [e["event"] for e in events] == ["run_start", "model_call", "rescued_tool_call", "run_end"]
+    assert events[2]["name"] == "submit_answer" and events[2]["args"] == {"answer": 2}
+    assert events[-1]["rescued"] == 1 and events[-1]["status"] == "submitted"
+
+
 # --- Loop detection (the node-10990 run repeated itself 9 times) ---
 
 def test_repeated_text_reply_stops_the_run():
     stuck = lambda messages, tools: text_reply('submit_answer\n{"answer": 0}\n</tool_call>')
-    result = run_agent("Get neighbors of node 10990", GRAPH, call_model=stuck, max_steps=10)
+    result = run_agent("Get neighbors of node 10990", GRAPH, call_model=stuck, max_steps=10, rescue=False)
     assert result.status == "loop_detected"
     assert roles(result).count("assistant") == 3  # stopped early, not after 10
 
