@@ -19,6 +19,7 @@ from pathlib import Path
 from eval.tasks import SPLITS, is_correct, load_graph, load_tasks, reference_answer
 from harness.hello_agent import MODEL, run_agent
 from harness.tasks import TASKS
+from harness.tools.graph_tools import GRAPH_TOOLS
 from harness.trace import Trace
 
 RESULTS_DIR = Path(__file__).resolve().parents[1] / "results" / "harness_runs"
@@ -30,6 +31,7 @@ def run(args) -> Path:
     task_names = sorted(TASKS) if args.task == "all" else [args.task]
     items = [item for name in task_names for item in load_tasks(name, args.size, args.split, args.n)]
     graphs = {}
+    graph_tools = [t for t in GRAPH_TOOLS if t["function"]["name"] not in args.without_tool]
 
     with (out_dir / "results.jsonl").open("a", encoding="utf-8") as results:
         for run_no in range(1, args.runs + 1):
@@ -46,7 +48,7 @@ def run(args) -> Path:
                 start = time.time()
                 try:
                     result = run_agent(item["question"], graph, answer_type=task.answer_type, verify=verify,
-                                       trace=trace)
+                                       trace=trace, graph_tools=graph_tools)
                     answer, status, rescued, rejected = result.answer, result.status, result.rescued, result.rejected
                 except Exception as e:  # e.g. Ollama not running; record it and keep going
                     answer, status, rescued, rejected = None, f"error: {e}", 0, 0
@@ -56,6 +58,7 @@ def run(args) -> Path:
                 row = {
                     "run": run_no, "run_id": trace.run_id, "model": MODEL, "size": args.size, "split": args.split,
                     **item, "answer_type": task.answer_type, "verified": verify is not None,
+                    "without_tools": args.without_tool,
                     "reference": reference_answer(task.name, graph, params), "answer": answer, "correct": correct,
                     "status": status, "rescued": rescued, "rejected": rejected,
                     "steps": end.get("steps"), "prompt_tokens": end.get("prompt_tokens"),
@@ -129,6 +132,9 @@ if __name__ == "__main__":
     parser.add_argument("--n", type=int, default=100, help="number of questions per task")
     parser.add_argument("--runs", type=int, default=3, help="repeat every question this many times")
     parser.add_argument("--no-verify", action="store_true", help="run without verifiers (ablation)")
+    parser.add_argument("--without-tool", action="append", default=[], metavar="TOOL",
+                        choices=[t["function"]["name"] for t in GRAPH_TOOLS],
+                        help="hide this graph tool from the agent (ablation); can be repeated")
     parser.add_argument("--name", default=None, help="results folder name (default: <task>_<size>_<split>_<time>)")
     parser.add_argument("--summary-only", action="store_true", help="only summarize an existing --name")
     args = parser.parse_args()

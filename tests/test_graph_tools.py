@@ -26,6 +26,19 @@ def test_get_neighbors_matches_networkx(graphs):
             assert result == {"neighbors": sorted(graph.neighbors(node))}
 
 
+def test_has_edge_matches_networkx(graphs):
+    for graph in graphs:
+        nodes = sorted(graph.nodes)
+        for u in nodes:
+            for v in nodes:
+                assert run_tool(graph, "has_edge", {"u": u, "v": v}) == {"has_edge": graph.has_edge(u, v)}
+
+
+def test_has_edge_missing_node_is_an_error():
+    result = run_tool(nx.path_graph(3), "has_edge", {"u": 0, "v": 99})
+    assert "does not exist" in result["error"]
+
+
 def test_graph_info_matches_networkx(graphs):
     for graph in graphs:
         result = run_tool(graph, "graph_info", {})

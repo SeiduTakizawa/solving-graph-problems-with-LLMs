@@ -74,6 +74,7 @@ harness/
   tools/          # graph tools + MCP server, result-handle store
   skills/         # playbooks (ported from old pseudocodes/)
   router.py       # task-family classification (structured output)
+  cli.py          # interactive chat with a loaded graph (M4.5)
   loop.py         # agent loop
   verifiers.py    # per-family programmatic checks
   escalation.py   # cascade logic
@@ -94,6 +95,9 @@ docs/
 - **M2** Verifiers for all 10 original problems; accuracy + cost report script.
 - **M3** Full tool set as an MCP server, input validation, result handles, `run_python` sandbox.
 - **M4** Router + skills (ported pseudocodes); per-family tool filtering.
+- **M4.5** Interactive CLI on top of the router: load any graph file, ask questions in plain English in a loop,
+  show tool calls and whether the answer was verified. Later: follow-up questions that reuse earlier answers.
+  For debugging and the thesis demo.
 - **M5** Escalation / model cascade.
 - **M6** Benchmark adapters + baselines (same model and same tools across harnesses).
 - **M7** Experiments: size scaling, Pareto fronts, component ablations, repeated runs with confidence intervals.

@@ -1,0 +1,17 @@
+run 1 [1/5] edge_existence graph 0 {'u': 3, 'v': 5}: submitted answer=True ✓
+run 1 [2/5] edge_existence graph 1 {'u': 3, 'v': 6}: submitted answer=True ✓
+run 1 [3/5] edge_existence graph 2 {'u': 1, 'v': 4}: submitted answer=True ✓
+run 1 [4/5] edge_existence graph 3 {'u': 4, 'v': 9}: submitted answer=True ✓
+run 1 [5/5] edge_existence graph 4 {'u': 4, 'v': 5}: submitted answer=True ✓
+
+=== has_edge_ablation_without: 5 questions x 1 runs, model ollama_chat/qwen3:8b
+run 1: accuracy 100.0%
+
+task                          runs  accuracy  strict  wrong  no ans  rescued  rejected  tokens   time
+edge_existence                   5    100.0%  100.0%      0       0        0         0    6456  23.7s
+
+wrong = submitted but incorrect, no ans = cannot_answer / loop_detected / max_steps / error,
+rescued = runs with a tool call rescued from text, rejected = answers sent back by the verifier,
+tokens = prompt + completion per question
+
+how runs ended: {'submitted': 5}

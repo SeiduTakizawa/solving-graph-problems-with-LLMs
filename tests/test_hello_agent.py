@@ -4,6 +4,7 @@ import json
 import networkx as nx
 
 from harness.hello_agent import FORMAT_ERROR, NUDGE, check_answer, run_agent
+from harness.tools.graph_tools import GRAPH_TOOLS
 from harness.trace import Trace, read_trace
 from harness.verifiers import verify_shortest_path
 
@@ -202,6 +203,45 @@ def test_verifier_rejection_is_logged(tmp_path):
     rejected = [e for e in events if e["event"] == "verifier_rejected"]
     assert len(rejected) == 1 and rejected[0]["answer"] == [0, 5]
     assert events[-1]["rejected"] == 1 and events[0]["verified"] is True
+
+
+# --- Offering a subset of tools (ablations) ---
+
+def test_only_offered_tools_are_shown():
+    seen = {}
+
+    def model(messages, tools):
+        seen["names"] = {t["function"]["name"] for t in tools}
+        return tool_call("submit_answer", {"answer": 2})
+
+    neighbors_only = [t for t in GRAPH_TOOLS if t["function"]["name"] == "get_neighbors"]
+    run_agent(QUESTION, GRAPH, call_model=model, graph_tools=neighbors_only)
+    assert seen["names"] == {"get_neighbors", "submit_answer", "cannot_answer"}
+
+
+def test_tool_not_offered_is_refused():
+    without_has_edge = [t for t in GRAPH_TOOLS if t["function"]["name"] != "has_edge"]
+    model = fake_model(
+        tool_call("has_edge", {"u": 4, "v": 5}),  # the model calls a tool it was not given
+        tool_call("submit_answer", {"answer": 2}),
+    )
+    result = run_agent(QUESTION, GRAPH, call_model=model, graph_tools=without_has_edge)
+    assert "Unknown tool has_edge" in json.loads(result.messages[3]["content"])["error"]
+
+
+# --- Thinking is logged, not re-sent ---
+
+def test_thinking_is_not_sent_back_but_is_logged(tmp_path):
+    trace = Trace(tmp_path / "run.jsonl")
+    model = fake_model(
+        {**tool_call("get_neighbors", {"node": 4}), "reasoning_content": "Let me look at node 4..."},
+        tool_call("submit_answer", {"answer": 2}),
+    )
+    result = run_agent(QUESTION, GRAPH, call_model=model, trace=trace)
+
+    assert all("reasoning_content" not in m for m in result.messages)
+    first_call = next(e for e in read_trace(trace.path) if e["event"] == "model_call")
+    assert first_call["reasoning"] == "Let me look at node 4..."
 
 
 # --- Giving up honestly (the node-99 and clique runs) ---

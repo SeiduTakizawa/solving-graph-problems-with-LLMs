@@ -170,7 +170,7 @@ def reply_signature(reply: dict) -> tuple:
 
 def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", call_model=call_model,
               max_steps: int = 10, trace: Trace | None = None, rescue: bool = True,
-              verify=None) -> RunResult:
+              verify=None, graph_tools: list[dict] | None = None) -> RunResult:
     """Run the agent loop until the model submits, gives up, repeats itself, or runs out of steps.
 
     answer_type ("number", "yes_no" or "node_list") sets what submit_answer accepts.
@@ -178,6 +178,7 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", call_
     With rescue=False they only get a FORMAT_ERROR (strict mode).
     verify: optional check of the final answer, verify(answer) -> error message or None.
     A rejected answer goes back to the model as an error, like a wrong answer type.
+    graph_tools: which graph tools to offer (default: all of GRAPH_TOOLS). Tools not offered are refused.
 
     If a Trace is given, every model call, tool call and the outcome are logged to it.
     """
@@ -194,9 +195,11 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", call_
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": question},
     ]
-    tools = GRAPH_TOOLS + [make_submit_answer(answer_type), CANNOT_ANSWER]
+    graph_tools = GRAPH_TOOLS if graph_tools is None else graph_tools
+    offered = {t["function"]["name"] for t in graph_tools}
+    tools = graph_tools + [make_submit_answer(answer_type), CANNOT_ANSWER]
     log("run_start", model=MODEL, question=question, answer_type=answer_type, max_steps=max_steps,
-        rescue=rescue, verified=verify is not None)
+        rescue=rescue, verified=verify is not None, tools=sorted(offered))
     previous, repeats = None, 0
 
     for step in range(1, max_steps + 1):
@@ -205,8 +208,13 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", call_
         stats = reply.pop("extra", {})  # bookkeeping only, not part of the conversation
         for key in totals:
             totals[key] += stats.get(key, 0)
+        # The model's hidden thinking is logged but not sent back: it would be re-read (and paid for)
+        # on every later step, and the model does not need its old thinking.
+        reasoning = reply.pop("reasoning_content", None)
+        reply.pop("thinking_blocks", None)
         messages.append(reply)
-        log("model_call", step=step, content=reply.get("content"), tool_calls=reply.get("tool_calls"), **stats)
+        log("model_call", step=step, content=reply.get("content"), tool_calls=reply.get("tool_calls"),
+            reasoning=reasoning, **stats)
 
         # Lenient mode: a tool call written as text is turned into a real one (and logged as such).
         if rescue and not reply.get("tool_calls"):
@@ -243,6 +251,8 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", call_
                 result = {"error": error}  # wrong shape or invalid: tell the model and let it try again
             elif name == "cannot_answer":
                 return finish(None, "cannot_answer", step, reason=args.get("reason"))
+            elif name not in offered:
+                result = {"error": f"Unknown tool {name}. Available tools: {sorted(offered)}."}
             else:
                 try:
                     result = run_tool(graph, name, args)

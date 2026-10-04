@@ -154,3 +154,39 @@ the correct `[2, 5]` to the text-tool-call bug again (3rd time overall, after gr
 
 **Open decision:** rescue tool calls written as text (lenient, logged as rescued, so both numbers can be
 reported) or keep counting them as failures (strict).
+
+---
+
+## 2026-10-05: Task registry, has_edge ablation, thinking re-sent in the history
+
+### Task registry
+`harness/tasks.py` holds what the agent may use per task: question template, answer type, verifier.
+`eval/tasks.py` holds what only the grader uses: dataset parameter parsing, reference answers, grading
+(any shortest path counts, neighbors in any order, `True` never counts as `1`). The harness never imports
+eval code, so no ground truth can leak into a run. Smoke test with qwen3:8b: 18/18 correct over all 9 tasks.
+
+### Ablation: does a direct `has_edge` tool help? (`--without-tool has_edge`)
+Same 5 `edge_existence` questions (small, dev), 1 run each. Results in
+`results/harness_runs/has_edge_ablation_{without,with}/`.
+
+| | without `has_edge` | with `has_edge` |
+|---|---|---|
+| correct | 5/5 | 5/5 |
+| output tokens (mostly thinking) | 2,256 | **282** (8× fewer) |
+| prompt tokens | 4,200 | 1,231 (partly inflated, see below) |
+| time per question | 23.7 s | **3.1 s** (7.6× faster) |
+
+Without the tool, qwen3 spends 1,500–2,700 thinking tokens working out that `get_neighbors` answers the
+question, before its first call. With it: 275–287 every time. **A well-fitting tool cuts cost ~8× at the
+same accuracy.** Small sample, but the gap is far larger than the noise.
+
+### Bug found: the model's thinking was being re-sent
+qwen3 replies carry their hidden thinking in `reasoning_content`, and the loop kept it in the history, so
+it was sent back (and re-read) on every later step. Fix: pop it before appending the reply, and log it as
+`reasoning` in the `model_call` event instead (it wasn't logged at all before).
+Same question (edge 3–6, without `has_edge`): step-2 prompt **1,826 → 534 tokens**.
+Note: all results before this fix (including the ablation above) have inflated prompt tokens on steps ≥ 2.
+Output tokens and accuracy are unaffected.
+
+**Lesson (context engineering):** what goes back into the history matters as much as what goes into the
+prompt. Check every field of the model's reply before re-sending it.

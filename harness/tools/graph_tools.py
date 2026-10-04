@@ -11,6 +11,13 @@ def get_neighbors(graph: nx.Graph, node: int) -> dict:
     return {"neighbors": sorted(graph.neighbors(node))}
 
 
+def has_edge(graph: nx.Graph, u: int, v: int) -> dict:
+    for node in (u, v):
+        if node not in graph:
+            return {"error": f"Node {node} does not exist. Nodes are {sorted(graph.nodes)}."}
+    return {"has_edge": graph.has_edge(u, v)}
+
+
 def graph_info(graph: nx.Graph) -> dict:
     """Basic facts about G.
 
@@ -75,6 +82,7 @@ def has_cycle(graph: nx.Graph) -> dict:
 # Tool name -> function. run_tool looks tools up here.
 TOOL_FUNCTIONS = {
     "get_neighbors": get_neighbors,
+    "has_edge": has_edge,
     "graph_info": graph_info,
     "shortest_path": shortest_path,
     "connected_components": connected_components,
@@ -92,6 +100,18 @@ GRAPH_TOOLS = [
                 "type": "object",
                 "properties": {"node": {"type": "integer"}},
                 "required": ["node"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "has_edge",
+            "description": "Return whether there is an edge between nodes u and v in G.",
+            "parameters": {
+                "type": "object",
+                "properties": {"u": {"type": "integer"}, "v": {"type": "integer"}},
+                "required": ["u", "v"],
             },
         },
     },
