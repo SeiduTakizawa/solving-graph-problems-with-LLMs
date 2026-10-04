@@ -102,6 +102,12 @@ docs/
 - **M2** Verifiers for all 10 original problems; accuracy + cost report script.
 - **M3** Full tool set as an MCP server, input validation, result handles, `run_python` sandbox.
 - **M4** Router + skills (ported pseudocodes); per-family tool filtering.
+  Router = task classification (picks the registry entry, so also the answer type and verifier) +
+  parameter extraction (node ids). Keep it swappable and compare candidates on routing accuracy,
+  latency and cost: small LLM with structured output, TypeSafe Jev (zero-shot classifier with typed
+  output + confidence; candidate for the classification part only, not parameters; cloud API, new
+  dependency), embeddings (`nomic-embed-text`), regex baseline. Low confidence → no verifier
+  ("unverified") or ask the user, never a guessed verifier. Jev is a router candidate, never a verifier.
 - **M4.5** Interactive CLI on top of the router: load any graph file, ask questions in plain English in a loop,
   show tool calls and whether the answer was verified. Later: follow-up questions that reuse earlier answers.
   For debugging and the thesis demo.
