@@ -13,7 +13,7 @@ from harness.verifiers import verify_shortest_path
 class Task:
     name: str
     question: str  # template, filled in with the task's params, e.g. "What is the degree of node {node}?"
-    answer_type: str  # "number", "yes_no" or "node_list" (see hello_agent.ANSWER_TYPES)
+    answer_type: str  # "number", "yes_no" or "node_list" (see harness/answers.py)
     verify: Callable | None = None  # verify(graph, params, answer) -> error message or None
 
     def make_question(self, params: dict) -> str:

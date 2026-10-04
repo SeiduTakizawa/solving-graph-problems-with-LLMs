@@ -15,5 +15,6 @@ build/
 # Secrets
 .env
 
-# Ad-hoc traces from manual hello_agent runs (experiment folders are committed)
+# Ad-hoc traces from manual runs (experiment folders are committed)
 results/harness_runs/hello_agent.jsonl
+results/harness_runs/ask.jsonl

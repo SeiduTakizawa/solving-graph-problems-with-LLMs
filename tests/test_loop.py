@@ -1,9 +1,11 @@
-"""Tests for the hello agent loop, using a fake model that replies from a script."""
+"""Tests for the agent loop, using a fake model that replies from a script."""
 import json
 
 import networkx as nx
 
-from harness.hello_agent import FORMAT_ERROR, NUDGE, check_answer, run_agent
+from harness.answers import check_answer
+from harness.loop import AgentConfig, run_agent
+from harness.prompts import FORMAT_ERROR, NUDGE
 from harness.tools.graph_tools import GRAPH_TOOLS
 from harness.trace import Trace, read_trace
 from harness.verifiers import verify_shortest_path
@@ -76,7 +78,7 @@ def test_stops_after_max_steps():
     # A model that asks about a different node each time (so it is not a repeat loop).
     nodes = iter(range(100))
     wandering = lambda messages, tools: tool_call("get_neighbors", {"node": next(nodes) % 7})
-    result = run_agent(QUESTION, GRAPH, call_model=wandering, max_steps=3)
+    result = run_agent(QUESTION, GRAPH, call_model=wandering, config=AgentConfig(max_steps=3))
     assert result.answer is None
     assert result.status == "max_steps"
 
@@ -86,7 +88,7 @@ def test_crashing_tool_does_not_crash_agent(monkeypatch):
     def broken_tool(graph, name, args):
         raise TypeError("Object of type EdgeView is not JSON serializable")
 
-    monkeypatch.setattr("harness.hello_agent.run_tool", broken_tool)
+    monkeypatch.setattr("harness.loop.run_tool", broken_tool)
     model = fake_model(
         tool_call("graph_info", {}),
         tool_call("submit_answer", {"answer": 5}),
@@ -214,18 +216,17 @@ def test_only_offered_tools_are_shown():
         seen["names"] = {t["function"]["name"] for t in tools}
         return tool_call("submit_answer", {"answer": 2})
 
-    neighbors_only = [t for t in GRAPH_TOOLS if t["function"]["name"] == "get_neighbors"]
-    run_agent(QUESTION, GRAPH, call_model=model, graph_tools=neighbors_only)
+    run_agent(QUESTION, GRAPH, call_model=model, config=AgentConfig(graph_tools=("get_neighbors",)))
     assert seen["names"] == {"get_neighbors", "submit_answer", "cannot_answer"}
 
 
 def test_tool_not_offered_is_refused():
-    without_has_edge = [t for t in GRAPH_TOOLS if t["function"]["name"] != "has_edge"]
+    without_has_edge = tuple(t["function"]["name"] for t in GRAPH_TOOLS if t["function"]["name"] != "has_edge")
     model = fake_model(
         tool_call("has_edge", {"u": 4, "v": 5}),  # the model calls a tool it was not given
         tool_call("submit_answer", {"answer": 2}),
     )
-    result = run_agent(QUESTION, GRAPH, call_model=model, graph_tools=without_has_edge)
+    result = run_agent(QUESTION, GRAPH, call_model=model, config=AgentConfig(graph_tools=without_has_edge))
     assert "Unknown tool has_edge" in json.loads(result.messages[3]["content"])["error"]
 
 
@@ -275,7 +276,7 @@ def test_strict_mode_gives_a_format_error():
         text_reply('submit_answer\n{"answer": 0}\n</tool_call>'),
         tool_call("submit_answer", {"answer": 0}),
     )
-    result = run_agent("Get neighbors of node 10990", GRAPH, call_model=model, rescue=False)
+    result = run_agent("Get neighbors of node 10990", GRAPH, call_model=model, config=AgentConfig(rescue=False))
     assert result.messages[3]["content"] == FORMAT_ERROR
     assert result.rescued == 0
 
@@ -354,7 +355,7 @@ def test_rescue_is_logged(tmp_path):
 
 def test_repeated_text_reply_stops_the_run():
     stuck = lambda messages, tools: text_reply('submit_answer\n{"answer": 0}\n</tool_call>')
-    result = run_agent("Get neighbors of node 10990", GRAPH, call_model=stuck, max_steps=10, rescue=False)
+    result = run_agent("Get neighbors of node 10990", GRAPH, call_model=stuck, config=AgentConfig(max_steps=10, rescue=False))
     assert result.status == "loop_detected"
     assert roles(result).count("assistant") == 3  # stopped early, not after 10
 
@@ -363,7 +364,7 @@ def test_repeated_tool_call_stops_the_run():
     # Same call each time, with a fresh random id like a real model would send.
     ids = iter(range(100))
     stuck = lambda messages, tools: tool_call("get_neighbors", {"node": 4}, call_id=f"call_{next(ids)}")
-    result = run_agent(QUESTION, GRAPH, call_model=stuck, max_steps=10)
+    result = run_agent(QUESTION, GRAPH, call_model=stuck, config=AgentConfig(max_steps=10))
     assert result.status == "loop_detected"
 
 
@@ -415,3 +416,18 @@ def test_stats_are_not_sent_to_the_model():
     )
     result = run_agent(QUESTION, GRAPH, call_model=model)
     assert all("extra" not in m for m in result.messages)
+
+
+def test_configured_model_is_used_and_logged(monkeypatch, tmp_path):
+    used = []
+
+    def fake_call_model(messages, tools, model):
+        used.append(model)
+        return tool_call("submit_answer", {"answer": 2})
+
+    monkeypatch.setattr("harness.models.call_model", fake_call_model)
+    trace = Trace(tmp_path / "run.jsonl")
+    run_agent(QUESTION, GRAPH, config=AgentConfig(model="openai/some-cheap-model"), trace=trace)
+
+    assert used == ["openai/some-cheap-model"]
+    assert read_trace(trace.path)[0]["model"] == "openai/some-cheap-model"

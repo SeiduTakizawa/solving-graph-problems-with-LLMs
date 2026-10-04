@@ -75,10 +75,17 @@ harness/
   skills/         # playbooks (ported from old pseudocodes/)
   router.py       # task-family classification (structured output)
   cli.py          # interactive chat with a loaded graph (M4.5)
-  loop.py         # agent loop
+  loop.py         # agent loop (AgentConfig, RunResult, run_agent)
+  answers.py      # answer types, submit_answer / cannot_answer, check_answer
+  prompts.py      # all text the harness says to the model
+  parsing.py      # spotting and rescuing tool calls written as text
+  tasks.py        # task registry: question template, answer type, verifier (no ground truth)
+  trace.py        # append-only JSONL trace
+  ask.py          # one question about one graph, from the command line
   verifiers.py    # per-family programmatic checks
   escalation.py   # cascade logic
 eval/
+  tasks.py        # dataset parsing, reference answers, grading (never imported by harness/)
   generators/     # ported question generator, scaled to 10k+ nodes
   adapters/       # GABench, ProGraph, GrAlgoBench, GT Bench loaders
   baselines/      # pure prompting, generic ReAct+python, Claude Code headless, GraphTeam

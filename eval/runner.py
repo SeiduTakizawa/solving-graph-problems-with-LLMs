@@ -17,7 +17,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from eval.tasks import SPLITS, is_correct, load_graph, load_tasks, reference_answer
-from harness.hello_agent import MODEL, run_agent
+from harness.loop import AgentConfig, run_agent
+from harness.models import DEFAULT_MODEL
 from harness.tasks import TASKS
 from harness.tools.graph_tools import GRAPH_TOOLS
 from harness.trace import Trace
@@ -31,7 +32,8 @@ def run(args) -> Path:
     task_names = sorted(TASKS) if args.task == "all" else [args.task]
     items = [item for name in task_names for item in load_tasks(name, args.size, args.split, args.n)]
     graphs = {}
-    graph_tools = [t for t in GRAPH_TOOLS if t["function"]["name"] not in args.without_tool]
+    config = AgentConfig(model=args.model, graph_tools=tuple(
+        t["function"]["name"] for t in GRAPH_TOOLS if t["function"]["name"] not in args.without_tool))
 
     with (out_dir / "results.jsonl").open("a", encoding="utf-8") as results:
         for run_no in range(1, args.runs + 1):
@@ -48,7 +50,7 @@ def run(args) -> Path:
                 start = time.time()
                 try:
                     result = run_agent(item["question"], graph, answer_type=task.answer_type, verify=verify,
-                                       trace=trace, graph_tools=graph_tools)
+                                       config=config, trace=trace)
                     answer, status, rescued, rejected = result.answer, result.status, result.rescued, result.rejected
                 except Exception as e:  # e.g. Ollama not running; record it and keep going
                     answer, status, rescued, rejected = None, f"error: {e}", 0, 0
@@ -56,7 +58,7 @@ def run(args) -> Path:
                 correct = is_correct(task.name, graph, params, answer)
 
                 row = {
-                    "run": run_no, "run_id": trace.run_id, "model": MODEL, "size": args.size, "split": args.split,
+                    "run": run_no, "run_id": trace.run_id, "model": args.model, "size": args.size, "split": args.split,
                     **item, "answer_type": task.answer_type, "verified": verify is not None,
                     "without_tools": args.without_tool,
                     "reference": reference_answer(task.name, graph, params), "answer": answer, "correct": correct,
@@ -131,6 +133,7 @@ if __name__ == "__main__":
     parser.add_argument("--split", default="dev", choices=list(SPLITS))
     parser.add_argument("--n", type=int, default=100, help="number of questions per task")
     parser.add_argument("--runs", type=int, default=3, help="repeat every question this many times")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help="any LiteLLM model name")
     parser.add_argument("--no-verify", action="store_true", help="run without verifiers (ablation)")
     parser.add_argument("--without-tool", action="append", default=[], metavar="TOOL",
                         choices=[t["function"]["name"] for t in GRAPH_TOOLS],

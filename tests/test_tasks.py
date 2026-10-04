@@ -3,7 +3,7 @@ import networkx as nx
 import pytest
 
 from eval.tasks import SPLITS, is_correct, load_graph, load_tasks, reference_answer
-from harness.hello_agent import ANSWER_TYPES, check_answer
+from harness.answers import ANSWER_TYPES, check_answer
 from harness.tasks import TASKS
 
 ALL_TASKS = sorted(TASKS)
