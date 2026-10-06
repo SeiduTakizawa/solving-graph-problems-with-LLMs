@@ -190,3 +190,69 @@ Output tokens and accuracy are unaffected.
 
 **Lesson (context engineering):** what goes back into the history matters as much as what goes into the
 prompt. Check every field of the model's reply before re-sending it.
+
+---
+
+## 2026-10-06: M2 so far: MST, evidence-based checkers, report script, dataset audit
+
+### What was built
+- **MST task.** New `edge_list` answer type, `minimum_spanning_tree` tool, `verify_mst`. The graphs are
+  unweighted and some small ones are disconnected, so any spanning *forest* is a correct answer. The old
+  pipeline's checker (`graph_reasoning/graph_algorithms.py`) compared against one exact edge set, so it marked
+  some correct answers wrong. `eval/tasks.py` now grades with an independent spanning-forest check.
+- **Evidence-based checkers.** A "yes" to connectivity or cycle_check now has to come with the path or cycle,
+  sent as an extra `submit_answer` field that the loop passes to the verifier. The answer itself stays
+  true/false, so grading did not change. `has_cycle` now returns the cycle it found. `connected_nodes` gets a
+  partial check: every listed node must be a real neighbor, listed once.
+- **Report script** `eval/analysis/report.py`: experiments side by side (and per task) as Markdown tables,
+  with accuracy, a 95% bootstrap CI over questions (all runs of a question go in or out together), the share
+  of answers a checker actually looked at, and tokens and time per question. `--plot` draws accuracy against
+  tokens, with both axes from 0, so 99.5% vs 100% doesn't look like a big gap.
+
+### Key idea: a verifier checks evidence, it never re-solves the question
+If a verifier recomputes the answer with networkx and compares, it is an oracle: accuracy goes to ~100% and
+the comparison with other harnesses means nothing. So a verifier may only check what the answer itself shows:
+
+| checkable | how |
+|---|---|
+| shortest_path, mst | the answer *is* the evidence (real edges, right ends / no cycle, n − c edges) |
+| connectivity "yes", cycle_check "yes" | the model must send the path / cycle |
+| connected_nodes | partly: listed nodes must be real neighbors; a missing one can't be seen |
+| counts, degree, edge_existence, any "no" | not checkable without solving again → unverified |
+
+This is the same pattern coding agents use (tests and compilers as verifiers), and the same reason
+"LLM-as-judge" is weaker: code gives a precise, trustworthy error message; a second model doesn't.
+
+### Dataset audit: several tasks have (almost) one possible answer
+Counted on the dev graphs (0–49):
+
+| | small (5–10 nodes) | large (21–50 nodes) |
+|---|---|---|
+| edge_existence answer is "yes" | 97 / 100 | **100 / 100** |
+| graph has a cycle | 47 / 50 | **50 / 50** |
+| graph is connected (components = 1) | 47 / 50 | **50 / 50** |
+| connectivity questions | 28 (14 yes / 14 no) | **0** |
+| shortest path length | | avg 1.5, max 3 |
+
+Large graphs are very dense (63–1,005 edges on 21–50 nodes), so paths are short and almost every pair is an
+edge. A model that always answers "yes" / "1" scores ~100% on edge_existence, cycle_check and
+components_count. These tasks still test whether the loop and tools work, but they can't tell a good model
+from a lucky one. Only connectivity (small) is balanced.
+
+Where large graphs *are* a real test: **connected_nodes** (avg 21, up to 45 neighbors to copy),
+**node_degree** (counting up to 45, unchecked), and **mst** (avg 36, up to 49 edges to copy). That is where
+copying mistakes, and the effect of the checkers, can show up.
+
+**Takeaways for the thesis:**
+- Report per-task accuracy next to a "majority answer" baseline, so a 100% on a one-answer task is read right.
+- The M6 generator should balance yes/no answers and control density, so paths are long and not every pair
+  is an edge.
+- An ablation idea: a `degree` tool would make node_degree trivial on large graphs (like `has_edge` did for
+  edge_existence: same accuracy, ~8× fewer tokens).
+
+### Still open for M2
+Real runs with qwen3:8b on the GPU machine, checkers on vs off, then the report and a closing entry:
+small (all tasks), and large (at least mst, connected_nodes, node_degree). Timing: ~4 s/answer on the RTX 5070,
+~680 questions per run, 3 runs, twice → ~4–5 h per size. A base M4 Mac (24 GB) fits the model but has
+~5× less memory bandwidth (~120 vs ~670 GB/s), and token generation is bandwidth-bound, so there it's
+~3–5× slower: fine for quick tests, not for the full runs.
