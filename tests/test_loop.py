@@ -8,7 +8,7 @@ from harness.loop import AgentConfig, run_agent
 from harness.prompts import FORMAT_ERROR, NUDGE
 from harness.tools.graph_tools import GRAPH_TOOLS
 from harness.trace import Trace, read_trace
-from harness.verifiers import verify_shortest_path
+from harness.verifiers import verify_connectivity, verify_shortest_path
 
 # Same graph as data/graphs/er/small/0.txt; node 4 has neighbors [2, 5].
 GRAPH = nx.Graph([(0, 2), (1, 6), (2, 4), (3, 5), (4, 5)])
@@ -149,6 +149,8 @@ def test_check_answer():
     assert check_answer([], "node_list") is None
     assert check_answer(2, "node_list") is not None
     assert check_answer([1, True], "node_list") is not None
+    assert check_answer(True, "yes_no_with_path") is None
+    assert check_answer(1, "yes_no_with_cycle") is not None
 
 
 # --- Verifier: a wrong final answer goes back to the model ---
@@ -205,6 +207,56 @@ def test_verifier_rejection_is_logged(tmp_path):
     rejected = [e for e in events if e["event"] == "verifier_rejected"]
     assert len(rejected) == 1 and rejected[0]["answer"] == [0, 5]
     assert events[-1]["rejected"] == 1 and events[0]["verified"] is True
+
+
+# --- Evidence: a "yes" can carry the path or cycle behind it, for the verifier ---
+
+def test_submit_answer_offers_the_evidence_field():
+    seen = {}
+
+    def model(messages, tools):
+        submit = next(t for t in tools if t["function"]["name"] == "submit_answer")
+        seen["params"] = submit["function"]["parameters"]
+        return tool_call("submit_answer", {"answer": False})
+
+    run_agent("Is there a path between nodes 0 and 5?", GRAPH, answer_type="yes_no_with_path", call_model=model)
+    assert seen["params"]["properties"]["answer"] == {"type": "boolean"}
+    assert "path" in seen["params"]["properties"]
+    assert seen["params"]["required"] == ["answer"]  # a "no" needs no evidence
+
+
+def test_evidence_is_passed_to_the_verifier_and_kept():
+    seen = []
+
+    def verify(answer, path=None):
+        seen.append((answer, path))
+        return None
+
+    model = fake_model(tool_call("submit_answer", {"answer": True, "path": [0, 2, 4, 5]}))
+    result = run_agent("Is there a path between nodes 0 and 5?", GRAPH, answer_type="yes_no_with_path",
+                       call_model=model, verify=verify)
+    assert seen == [(True, [0, 2, 4, 5])]
+    assert result.answer is True and result.evidence == {"path": [0, 2, 4, 5]}
+
+
+def test_no_evidence_for_plain_answer_types():
+    seen = []
+    model = fake_model(tool_call("submit_answer", {"answer": [0, 2, 4, 5], "path": [9]}))  # extra field ignored
+    result = run_agent(PATH_QUESTION, GRAPH, answer_type="node_list", call_model=model,
+                       verify=lambda answer: seen.append(answer))
+    assert seen == [[0, 2, 4, 5]] and result.evidence is None
+
+
+def test_yes_without_evidence_is_sent_back():
+    check = lambda answer, path=None: verify_connectivity(GRAPH, {"source": 0, "target": 5}, answer, path)
+    model = fake_model(
+        tool_call("submit_answer", {"answer": True}, call_id="call_A"),
+        tool_call("submit_answer", {"answer": True, "path": [0, 2, 4, 5]}, call_id="call_B"),
+    )
+    result = run_agent("Is there a path between nodes 0 and 5?", GRAPH, answer_type="yes_no_with_path",
+                       call_model=model, verify=check)
+    assert result.status == "submitted" and result.rejected == 1
+    assert "path" in json.loads(result.messages[3]["content"])["error"]
 
 
 # --- Offering a subset of tools (ablations) ---

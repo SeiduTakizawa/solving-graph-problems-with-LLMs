@@ -6,16 +6,10 @@ None if the answer is valid, or an error message the model can act on.
 import networkx as nx
 
 
-def verify_shortest_path(graph: nx.Graph, params: dict, answer: list[int]) -> str | None:
-    """Check that `answer` is a shortest path from params["source"] to params["target"].
-
-    Return None if it is, otherwise a short message saying what is wrong.
-    """
-    source, target = params["source"], params["target"]
-    path = answer
-
+def check_path(graph: nx.Graph, source: int, target: int, path) -> str | None:
+    """None if `path` is a real path in G from source to target, otherwise what is wrong with it."""
     # 1. An empty path is never valid.
-    if len(path) == 0:
+    if not isinstance(path, list) or len(path) == 0:
         return "The path is empty."
 
     # 2. The path must start at source and end at target (either end wrong is an error, hence "or").
@@ -26,6 +20,22 @@ def verify_shortest_path(graph: nx.Graph, params: dict, answer: list[int]) -> st
     for u, v in zip(path, path[1:]):
         if not graph.has_edge(u, v):
             return f"{u}-{v} is not an edge in G."
+
+    return None
+
+
+def verify_shortest_path(graph: nx.Graph, params: dict, answer: list[int]) -> str | None:
+    """Check that `answer` is a shortest path from params["source"] to params["target"].
+
+    Return None if it is, otherwise a short message saying what is wrong.
+    """
+    source, target = params["source"], params["target"]
+    path = answer
+
+    # 1-3. It must be a real path from source to target.
+    error = check_path(graph, source, target, path)
+    if error:
+        return error
 
     # 4. The path must be the shortest. Its length is the number of steps.
     length, best = len(path) - 1, nx.shortest_path_length(graph, source, target)
@@ -81,4 +91,58 @@ def verify_mst(graph: nx.Graph, params: dict, answer: list[list[int]]) -> str | 
         return (f"{missing} edges are missing: a spanning tree must connect every node that G connects "
                 "(one tree per connected component).")
 
+    return None
+
+
+# The next three are partial checks. A "no" (no path, no cycle) and a missing neighbor can't be checked without
+# solving the question again, so those are accepted as they are: only the part with evidence is checked.
+
+def verify_connectivity(graph: nx.Graph, params: dict, answer: bool, path: list[int] | None = None) -> str | None:
+    """A "yes, there is a path" must come with that path, and the path must be real. A "no" is not checked."""
+    if answer is False:
+        return None
+    source, target = params["source"], params["target"]
+    if not path:
+        return f"You answered true: also send the path you found from {source} to {target} in the path field."
+    return check_path(graph, source, target, path)
+
+
+def verify_cycle(graph: nx.Graph, params: dict, answer: bool, cycle: list[int] | None = None) -> str | None:
+    """A "yes, there is a cycle" must come with a real cycle of G. A "no" is not checked."""
+    if answer is False:
+        return None
+    if not cycle:
+        return "You answered true: also send the nodes of one cycle, in order, in the cycle field."
+    if not isinstance(cycle, list):
+        return "The cycle must be a list of nodes."
+
+    # Accept the cycle written with its first node repeated at the end, e.g. [0, 1, 2, 0].
+    if len(cycle) > 1 and cycle[0] == cycle[-1]:
+        cycle = cycle[:-1]
+
+    # 1. In a simple undirected graph a cycle has at least 3 nodes (0-1-0 just walks one edge back and forth).
+    if len(cycle) < 3:
+        return f"{cycle} is not a cycle: a cycle needs at least 3 different nodes."
+
+    # 2. No node twice: otherwise it is a walk, not a cycle.
+    if len(set(cycle)) != len(cycle):
+        return f"{cycle} visits a node more than once."
+
+    # 3. Every step must be a real edge, including the one closing the cycle (last node back to the first).
+    for u, v in zip(cycle, cycle[1:] + cycle[:1]):
+        if not graph.has_edge(u, v):
+            return f"{u}-{v} is not an edge in G."
+
+    return None
+
+
+def verify_neighbors(graph: nx.Graph, params: dict, answer: list[int]) -> str | None:
+    """Every listed node must really be a neighbor of params["node"], listed once.
+    A missing neighbor is not checked."""
+    node = params["node"]
+    if len(set(answer)) != len(answer):
+        return "Some nodes are listed more than once."
+    for other in answer:
+        if not graph.has_edge(node, other):
+            return f"{other} is not a neighbor of {node}."
     return None

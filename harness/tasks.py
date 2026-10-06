@@ -6,15 +6,15 @@ verifier that checks it. Ground truth and grading live in eval/tasks.py and neve
 from dataclasses import dataclass
 from typing import Callable
 
-from harness.verifiers import verify_mst, verify_shortest_path
+from harness.verifiers import verify_connectivity, verify_cycle, verify_mst, verify_neighbors, verify_shortest_path
 
 
 @dataclass(frozen=True)
 class Task:
     name: str
     question: str  # template, filled in with the task's params, e.g. "What is the degree of node {node}?"
-    answer_type: str  # "number", "yes_no", "node_list" or "edge_list" (see harness/answers.py)
-    verify: Callable | None = None  # verify(graph, params, answer) -> error message or None
+    answer_type: str  # "number", "yes_no", "node_list", "edge_list", ... (see harness/answers.py)
+    verify: Callable | None = None  # verify(graph, params, answer, **evidence) -> error message or None
 
     def make_question(self, params: dict) -> str:
         return self.question.format(**params)
@@ -24,11 +24,13 @@ TASKS = {task.name: task for task in [
     Task("node_count", "How many nodes does G have?", "number"),
     Task("edge_count", "How many edges does G have?", "number"),
     Task("node_degree", "What is the degree of node {node}?", "number"),
-    Task("connected_nodes", "Which nodes are the neighbors of node {node}?", "node_list"),
+    Task("connected_nodes", "Which nodes are the neighbors of node {node}?", "node_list",
+         verify=verify_neighbors),
     Task("edge_existence", "Is there an edge between nodes {u} and {v}?", "yes_no"),
-    Task("connectivity", "Is there a path between nodes {source} and {target}?", "yes_no"),
+    Task("connectivity", "Is there a path between nodes {source} and {target}?", "yes_no_with_path",
+         verify=verify_connectivity),
     Task("connected_components_count", "How many connected components does G have?", "number"),
-    Task("cycle_check", "Is there a cycle in G?", "yes_no"),
+    Task("cycle_check", "Is there a cycle in G?", "yes_no_with_cycle", verify=verify_cycle),
     Task("shortest_path",
          "What is a shortest path from node {source} to node {target}? Answer with the list of nodes on the path.",
          "node_list", verify=verify_shortest_path),

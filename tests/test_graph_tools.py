@@ -74,15 +74,25 @@ def test_connected_components_matches_networkx(graphs):
         assert result == {"count": len(expected), "components": expected}
 
 
+def is_real_cycle(graph, cycle):
+    closing = list(zip(cycle, cycle[1:] + cycle[:1]))  # every step, including last node back to the first
+    return len(cycle) >= 3 and len(set(cycle)) == len(cycle) and all(graph.has_edge(u, v) for u, v in closing)
+
+
 def test_has_cycle_matches_networkx(graphs):
     for graph in graphs:
         result = run_tool(graph, "has_cycle", {})
-        assert result == {"has_cycle": len(nx.cycle_basis(graph)) > 0}
+        assert result["has_cycle"] == (len(nx.cycle_basis(graph)) > 0)
+        if result["has_cycle"]:
+            assert is_real_cycle(graph, result["cycle"])
+        else:
+            assert result == {"has_cycle": False}
 
 
 def test_has_cycle_small_cases():
     assert run_tool(nx.path_graph(4), "has_cycle", {}) == {"has_cycle": False}   # 0-1-2-3
-    assert run_tool(nx.cycle_graph(3), "has_cycle", {}) == {"has_cycle": True}   # triangle
+    triangle = run_tool(nx.cycle_graph(3), "has_cycle", {})
+    assert triangle["has_cycle"] is True and sorted(triangle["cycle"]) == [0, 1, 2]
     assert run_tool(nx.empty_graph(3), "has_cycle", {}) == {"has_cycle": False}  # no edges
 
 

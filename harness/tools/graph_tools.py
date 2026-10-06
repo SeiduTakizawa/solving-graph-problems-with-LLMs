@@ -68,13 +68,13 @@ def connected_components(graph: nx.Graph) -> dict:
 
 
 def has_cycle(graph: nx.Graph) -> dict:
-    """Whether G contains a cycle.
+    """Whether G contains a cycle, and one cycle if it does.
 
-    Return: {"has_cycle": True} or {"has_cycle": False}
+    Return: {"has_cycle": True, "cycle": [nodes in order]} or {"has_cycle": False}
     """
     try:
-        nx.find_cycle(graph)
-        return {"has_cycle": True}
+        edges = nx.find_cycle(graph)  # [(0, 1), (1, 2), (2, 0)] -> cycle [0, 1, 2]
+        return {"has_cycle": True, "cycle": [u for u, v in edges]}
     except nx.NetworkXNoCycle:
         return {"has_cycle": False}
 
@@ -169,7 +169,7 @@ GRAPH_TOOLS = [
         "type": "function",
         "function": {
             "name": "has_cycle",
-            "description": "Return whether G contains a cycle.",
+            "description": "Return whether G contains a cycle, and the nodes of one cycle if it does.",
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },

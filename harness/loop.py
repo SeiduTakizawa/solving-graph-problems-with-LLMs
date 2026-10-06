@@ -6,7 +6,7 @@ from functools import partial
 import networkx as nx
 
 from harness import models
-from harness.answers import CANNOT_ANSWER, check_answer, make_submit_answer
+from harness.answers import CANNOT_ANSWER, check_answer, evidence_fields, make_submit_answer
 from harness.parsing import looks_like_text_tool_call, parse_text_tool_call
 from harness.prompts import FORMAT_ERROR, NUDGE, SYSTEM_PROMPT
 from harness.tools.graph_tools import GRAPH_TOOLS, run_tool
@@ -31,6 +31,7 @@ class RunResult:
     reason: str | None = None  # why it could not answer, or why the run was stopped
     rescued: int = 0  # tool calls written as text that the harness parsed and ran anyway
     rejected: int = 0  # submitted answers the verifier sent back
+    evidence: dict | None = None  # extra fields sent with the answer, e.g. {"path": [...]} behind a "yes"
 
 
 def reply_signature(reply: dict) -> tuple:
@@ -43,8 +44,9 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
               config: AgentConfig = AgentConfig(), call_model=None, trace: Trace | None = None) -> RunResult:
     """Run the agent loop until the model submits, gives up, repeats itself, or runs out of steps.
 
-    answer_type ("number", "yes_no", "node_list" or "edge_list") sets what submit_answer accepts.
-    verify: optional check of the final answer, verify(answer) -> error message or None.
+    answer_type (see harness/answers.py) sets what submit_answer accepts.
+    verify: optional check of the final answer, verify(answer, **evidence) -> error message or None.
+    Evidence is only sent for answer types that have it (e.g. verify(answer, path=[...]) for yes_no_with_path).
     A rejected answer goes back to the model as an error, like a wrong answer type.
     call_model: replaces the real model, call_model(messages, tools) -> reply (used by the tests).
     If a Trace is given, every model call, tool call and the outcome are logged to it.
@@ -54,10 +56,10 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
     totals = {"prompt_tokens": 0, "completion_tokens": 0, "latency_s": 0.0}
     rescued = rejected = 0
 
-    def finish(answer, status, steps, reason=None):
-        log("run_end", answer=answer, status=status, reason=reason, steps=steps, rescued=rescued,
-            rejected=rejected, **totals)
-        return RunResult(answer, status, messages, reason, rescued, rejected)
+    def finish(answer, status, steps, reason=None, evidence=None):
+        log("run_end", answer=answer, evidence=evidence, status=status, reason=reason, steps=steps,
+            rescued=rescued, rejected=rejected, **totals)
+        return RunResult(answer, status, messages, reason, rescued, rejected, evidence)
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -109,14 +111,15 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
             args = json.loads(call["function"]["arguments"])  # arguments arrive as a JSON string
 
             if name == "submit_answer":
+                evidence = {field: args.get(field) for field in evidence_fields(answer_type)}
                 error = check_answer(args.get("answer"), answer_type)
                 if error is None and verify is not None:
-                    error = verify(args["answer"])  # right type; is it also a valid answer?
+                    error = verify(args["answer"], **evidence)  # right type; is it also a valid answer?
                     if error:
                         rejected += 1
-                        log("verifier_rejected", step=step, answer=args["answer"], error=error)
+                        log("verifier_rejected", step=step, answer=args["answer"], evidence=evidence, error=error)
                 if error is None:
-                    return finish(args["answer"], "submitted", step)
+                    return finish(args["answer"], "submitted", step, evidence=evidence or None)
                 result = {"error": error}  # wrong shape or invalid: tell the model and let it try again
             elif name == "cannot_answer":
                 return finish(None, "cannot_answer", step, reason=args.get("reason"))

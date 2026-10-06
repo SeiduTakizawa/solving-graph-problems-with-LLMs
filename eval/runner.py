@@ -44,7 +44,8 @@ def run(args) -> Path:
                 graph = graphs[graph_id]
                 verify = None
                 if task.verify and not args.no_verify:
-                    verify = lambda answer, graph=graph, params=params, check=task.verify: check(graph, params, answer)
+                    verify = (lambda answer, graph=graph, params=params, check=task.verify, **evidence:
+                              check(graph, params, answer, **evidence))
 
                 trace = Trace(out_dir / "traces.jsonl")
                 start = time.time()
@@ -52,8 +53,9 @@ def run(args) -> Path:
                     result = run_agent(item["question"], graph, answer_type=task.answer_type, verify=verify,
                                        config=config, trace=trace)
                     answer, status, rescued, rejected = result.answer, result.status, result.rescued, result.rejected
+                    evidence = result.evidence
                 except Exception as e:  # e.g. Ollama not running; record it and keep going
-                    answer, status, rescued, rejected = None, f"error: {e}", 0, 0
+                    answer, status, rescued, rejected, evidence = None, f"error: {e}", 0, 0, None
                 end = _run_end(trace)
                 correct = is_correct(task.name, graph, params, answer)
 
@@ -61,7 +63,7 @@ def run(args) -> Path:
                     "run": run_no, "run_id": trace.run_id, "model": args.model, "size": args.size, "split": args.split,
                     **item, "answer_type": task.answer_type, "verified": verify is not None,
                     "without_tools": args.without_tool,
-                    "reference": reference_answer(task.name, graph, params), "answer": answer, "correct": correct,
+                    "reference": reference_answer(task.name, graph, params), "answer": answer, "evidence": evidence, "correct": correct,
                     "status": status, "rescued": rescued, "rejected": rejected,
                     "steps": end.get("steps"), "prompt_tokens": end.get("prompt_tokens"),
                     "completion_tokens": end.get("completion_tokens"),
