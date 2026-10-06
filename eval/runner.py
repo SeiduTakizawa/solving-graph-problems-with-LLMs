@@ -35,6 +35,7 @@ def run(args) -> Path:
     config = AgentConfig(model=args.model, graph_tools=tuple(
         t["function"]["name"] for t in GRAPH_TOOLS if t["function"]["name"] not in args.without_tool))
 
+    total, done, started = args.runs * len(items), 0, time.time()
     with (out_dir / "results.jsonl").open("a", encoding="utf-8") as results:
         for run_no in range(1, args.runs + 1):
             for i, item in enumerate(items, 1):
@@ -71,9 +72,26 @@ def run(args) -> Path:
                 }
                 results.write(json.dumps(row) + "\n")
                 results.flush()
+                done += 1
                 print(f"run {run_no} [{i}/{len(items)}] {task.name} graph {graph_id} {params}: "
-                      f"{status} answer={answer} {'✓' if correct else '✗'}", flush=True)
+                      f"{status} answer={_short(answer)} {'✓' if correct else '✗'}  {_progress(done, total, started)}",
+                      flush=True)
     return out_dir
+
+
+def _progress(done: int, total: int, started: float) -> str:
+    """e.g. "12/108, 2m 05s left, ends ~14:32": the estimate is the average time so far x answers left."""
+    left = (time.time() - started) / done * (total - done)
+    minutes, seconds = divmod(int(left), 60)
+    hours, minutes = divmod(minutes, 60)
+    left_text = f"{hours}h {minutes:02d}m" if hours else f"{minutes}m {seconds:02d}s"
+    return f"| {done}/{total}, {left_text} left, ends ~{time.strftime('%H:%M', time.localtime(time.time() + left))}"
+
+
+def _short(answer) -> str:
+    """Long answers (a 49-edge MST) would flood the progress output."""
+    text = json.dumps(answer)
+    return text if len(text) <= 40 else text[:37] + "..."
 
 
 def _run_end(trace: Trace) -> dict:

@@ -256,3 +256,56 @@ small (all tasks), and large (at least mst, connected_nodes, node_degree). Timin
 ~680 questions per run, 3 runs, twice → ~4–5 h per size. A base M4 Mac (24 GB) fits the model but has
 ~5× less memory bandwidth (~120 vs ~670 GB/s), and token generation is bandwidth-bound, so there it's
 ~3–5× slower: fine for quick tests, not for the full runs.
+
+---
+
+## 2026-10-07: Pilot run, large graphs (M2)
+
+**Setup:** `ollama_chat/qwen3:8b`, base M4 MacBook Air (24 GB), large dev graphs, all 9 tasks × 6 questions,
+1 run, checkers on. Results in `results/harness_runs/m2_pilot_large_verify/`. The runner now prints progress
+with time left and an estimated end time.
+
+### Results
+**54/54 correct (lenient), 43/54 strict.** The model picked the right tool on its first call in every question.
+
+| task | time / answer | notes |
+|---|---|---|
+| node / edge / component counts, edge existence | 18–20 s | 2 steps: one tool, then submit |
+| connected_nodes, shortest_path | 27 s | |
+| cycle_check | 35 s | 5 of 6 sent back once by the checker (see below) |
+| mst | 69 s | writes out up to 49 edges |
+| node_degree | **133 s** (up to 223 s) | see below |
+
+On this Mac that is ~30 s per answer on average, ~4.5× slower than the RTX 5070. The full large run
+(650 questions × 2 runs × checkers on/off) would take ~32 h here; 20 questions per task ~8 h.
+
+### Findings
+1. **Text tool calls: 11/54 (20%) answers were rescued.** qwen3 writes `submit_answer {"answer": 12}` at the end
+   of its text instead of calling the tool. Lenient mode parses and runs it; strict mode would fail them.
+   Part of what makes a small model usable is the harness cleaning up its format mistakes, so report both.
+2. **node_degree is slow because the model worries, not because it counts.** In the slow cases most of the time is
+   step 1, *before any tool call* (e.g. 1,759 tokens, 123 s), spent debating whether G might be directed (degree =
+   in + out?). Then it calls `graph_info` to check. The fact was one tool call away, but thinking happens before
+   tool calls, so another tool can't fix it. **Lesson: facts the model needs to plan belong in the context up
+   front; tools are for facts it needs to compute.** Only add facts that don't give away an answer (directedness
+   yes, node count no).
+3. **cycle_check: the model saw the cycle and decided not to send it.** `has_cycle` returned `[2, 1, 5, 3]`;
+   thinking: "the user only asked if there's a cycle, so confirming true is sufficient". Our `submit_answer`
+   description makes the evidence sound optional. The checker caught it every time (fixed on the 2nd try), at the
+   cost of an extra round (~8 s, ~130 tokens).
+
+### Next (proposed, not done yet)
+- A. `submit_answer` description: evidence is *required* when answering true.
+- B. System prompt line "G is an undirected graph" (from `graph.is_directed()`); measure on the same 6
+  node_degree questions.
+- C. Fewer text tool calls: clearer prompt or an example call; measure the strict score.
+- Experiments: `degree` tool on/off; qwen3 thinking on/off; checkers on/off (the M2 comparison).
+- Report: add strict accuracy and a majority-answer baseline; a `--compare` view (one row per task, one column
+  per experiment).
+
+### Comparing with Claude (open)
+Two ways, and they answer different questions:
+- **Same harness, different model** (Sonnet 5.5 through LiteLLM): needs API access (`ant auth login` or an API
+  key, < $0.25 for 6 questions). A Claude.ai / Claude Code subscription can't be used from our own scripts.
+- **Different harness** (Claude Code headless, `claude -p`, on the subscription) with our tools through an MCP
+  server: this is the M6 baseline and the thesis's main comparison. Needs the MCP server from M3 (new dependency).

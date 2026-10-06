@@ -121,6 +121,17 @@ docs/
 - **M6** Benchmark adapters + baselines (same model and same tools across harnesses).
 - **M7** Experiments: size scaling, Pareto fronts, component ablations, repeated runs with confidence intervals.
 
+## Current status (update when it changes)
+- M0, M1 done. **M2 in progress:** verifiers for shortest_path, mst (full), connectivity / cycle_check (a "yes"
+  carries the path / cycle as evidence), connected_nodes (partial); counts, degree, edge existence and any "no"
+  are unverified by design. Report script `eval/analysis/report.py` done.
+- Pilot on large graphs done (`results/harness_runs/m2_pilot_large_verify/`, findings in `docs/learning_log.md`).
+- Next: fixes A/B from the pilot (evidence wording, "G is undirected" prompt line), then the M2 runs on the GPU
+  machine (checkers on vs off; small all tasks, large at least mst / connected_nodes / node_degree), then the
+  closing learning-log entry.
+- Machines: GPU machine (RTX 5070) for real runs; MacBook Air M4 has Ollama + qwen3:8b but is ~4.5× slower
+  (~30 s/answer), so only for quick tests. No Anthropic API access yet (see learning log, 2026-10-07).
+
 ## Experimental rules
 - Compare harnesses with the **same model** and, where possible, the **same tools**.
 - **Dev/test split:** design tools, prompts, and routing on dev tasks only. Never tune on test tasks.
@@ -137,8 +148,9 @@ docs/
   verifiers) myself: give me a concept explanation, a skeleton with TODOs, and failing tests, then review
   my code. Claude writes the plumbing (config, logging boilerplate, test scaffolding).
   Each milestone ends with a short entry in `docs/learning_log.md`.
-- Git: `origin` is HTTPS without stored credentials; push over SSH
-  (`git push git@github.com:SeiduTakizawa/solving-graph-problems-with-LLMs.git main`).
+- Git: on the GPU machine push over SSH
+  (`git push git@github.com:SeiduTakizawa/solving-graph-problems-with-LLMs.git main`); on the MacBook SSH has no
+  key, so `git push origin main` over HTTPS (credentials via `gh`).
 
 ## Key references
 - Skianis et al. 2024, pseudo-code prompting — arXiv:2409.17906
