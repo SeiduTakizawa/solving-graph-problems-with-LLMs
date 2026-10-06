@@ -43,7 +43,7 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
               config: AgentConfig = AgentConfig(), call_model=None, trace: Trace | None = None) -> RunResult:
     """Run the agent loop until the model submits, gives up, repeats itself, or runs out of steps.
 
-    answer_type ("number", "yes_no" or "node_list") sets what submit_answer accepts.
+    answer_type ("number", "yes_no", "node_list" or "edge_list") sets what submit_answer accepts.
     verify: optional check of the final answer, verify(answer) -> error message or None.
     A rejected answer goes back to the model as an error, like a wrong answer type.
     call_model: replaces the real model, call_model(messages, tools) -> reply (used by the tests).

@@ -78,3 +78,28 @@ def test_true_is_not_one():
     # In Python True == 1, but a yes/no answer is not a count.
     assert not is_correct("node_degree", nx.path_graph(2), {"node": 0}, True)
     assert not is_correct("cycle_check", nx.cycle_graph(3), {}, 1)
+
+
+def test_any_spanning_forest_counts_for_mst():
+    square = nx.cycle_graph(4)  # 0-1-2-3-0: dropping any one of the 4 edges gives a spanning tree
+    assert is_correct("mst", square, {}, [[0, 1], [1, 2], [2, 3]])
+    assert is_correct("mst", square, {}, [[1, 0], [3, 0], [3, 2]])  # direction and order don't matter
+
+
+def test_bad_mst_is_wrong():
+    square = nx.cycle_graph(4)
+    assert not is_correct("mst", square, {}, [[0, 1], [1, 2], [2, 3], [3, 0]])  # a cycle
+    assert not is_correct("mst", square, {}, [[0, 1], [1, 2]])  # node 3 left out
+    assert not is_correct("mst", square, {}, [[0, 1], [1, 2], [0, 2]])  # 0-2 is not an edge
+    assert not is_correct("mst", square, {}, [[0, 1], [1, 0], [1, 2], [2, 3]])  # 0-1 twice
+
+
+@pytest.mark.parametrize("answer, ok", [
+    ([[0, 1], [1, 2]], True),
+    ([], True),
+    ([0, 1], False),  # a node list, not an edge list
+    ([[0, 1, 2]], False),  # not a pair
+    ([[True, 1]], False),  # True is not a node id
+])
+def test_edge_list_answer_type(answer, ok):
+    assert (check_answer(answer, "edge_list") is None) == ok

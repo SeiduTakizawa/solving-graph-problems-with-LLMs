@@ -79,6 +79,8 @@ def reference_answer(task: str, graph: nx.Graph, params: dict):
         return len(nx.cycle_basis(graph)) > 0
     if task == "shortest_path":
         return nx.shortest_path(graph, params["source"], params["target"])  # one of possibly several
+    if task == "mst":
+        return [[u, v] for u, v in nx.minimum_spanning_edges(graph, data=False)]  # one of possibly many
     raise ValueError(f"Unknown task {task}")
 
 
@@ -89,6 +91,8 @@ def is_correct(task: str, graph: nx.Graph, params: dict, answer) -> bool:
         return isinstance(answer, list) and sorted(answer) == reference_answer(task, graph, params)
     if task == "shortest_path":  # any shortest path is fine, not only the one networkx found
         return isinstance(answer, list) and verify_path(graph, params, answer)
+    if task == "mst":  # any spanning forest is fine: the graphs are unweighted, so all have the same weight
+        return isinstance(answer, list) and is_spanning_forest(graph, answer)
     expected = reference_answer(task, graph, params)
     return answer == expected and type(answer) is type(expected)  # True must not count as 1
 
@@ -99,3 +103,15 @@ def verify_path(graph: nx.Graph, params: dict, path: list) -> bool:
     return (len(path) > 0 and path[0] == source and path[-1] == target
             and all(graph.has_edge(u, v) for u, v in zip(path, path[1:]))
             and len(path) - 1 == nx.shortest_path_length(graph, source, target))
+
+
+def is_spanning_forest(graph: nx.Graph, edges: list) -> bool:
+    """Grading check for mst, written independently of the harness's verifier: the edges are real edges
+    of G, there are no repeats, and together they connect exactly what G connects without a cycle."""
+    if not all(isinstance(e, list) and len(e) == 2 and graph.has_edge(*e) for e in edges):
+        return False
+    if len({frozenset(e) for e in edges}) != len(edges):
+        return False
+    forest = nx.Graph(edges)
+    forest.add_nodes_from(graph)
+    return nx.is_forest(forest) and nx.number_connected_components(forest) == nx.number_connected_components(graph)

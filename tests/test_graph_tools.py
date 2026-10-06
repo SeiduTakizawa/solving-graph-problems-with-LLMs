@@ -86,6 +86,32 @@ def test_has_cycle_small_cases():
     assert run_tool(nx.empty_graph(3), "has_cycle", {}) == {"has_cycle": False}  # no edges
 
 
+def test_minimum_spanning_tree_matches_networkx(graphs):
+    for graph in graphs:
+        result = run_tool(graph, "minimum_spanning_tree", {})
+        edges = result["edges"]
+        assert result["num_edges"] == len(edges)
+        assert all(u < v for u, v in edges) and edges == sorted(edges)  # same graph, same result
+        assert all(graph.has_edge(u, v) for u, v in edges)
+        forest = nx.Graph(edges)
+        forest.add_nodes_from(graph)
+        assert nx.is_forest(forest)
+        assert nx.number_connected_components(forest) == nx.number_connected_components(graph)  # spans G
+
+
+def test_minimum_spanning_tree_small_cases():
+    assert run_tool(nx.path_graph(4), "minimum_spanning_tree", {}) == {"num_edges": 3, "edges": [[0, 1], [1, 2], [2, 3]]}
+    assert run_tool(nx.cycle_graph(3), "minimum_spanning_tree", {})["num_edges"] == 2   # triangle: drop one edge
+    assert run_tool(nx.empty_graph(3), "minimum_spanning_tree", {}) == {"num_edges": 0, "edges": []}
+    two_parts = nx.Graph([(0, 1), (1, 2), (2, 0), (3, 4)])  # a triangle and a separate edge: a forest of 2 trees
+    assert run_tool(two_parts, "minimum_spanning_tree", {})["num_edges"] == 3
+
+
+def test_minimum_spanning_tree_directed_is_an_error():
+    result = run_tool(nx.DiGraph([(0, 1), (1, 2)]), "minimum_spanning_tree", {})
+    assert "directed" in result["error"]
+
+
 # Tools never raise: every bad input comes back as an error the model can read.
 
 def test_missing_node_is_an_error():

@@ -16,8 +16,11 @@ process-level evaluation, may become one chapter).
 The original thesis code lives in this repo, next to the new harness. It builds on
 Skianis et al. 2024, "Graph Reasoning with LLMs via Pseudo-code Prompting". Reuse, don't rewrite:
 - ER graph + question generator `scripts/generate_dataset.py`, data in `data/graphs/` and
-  `data/graphs_questions/` (10 problems: node/edge count, node degree, neighbors, connected components,
-  cycle check, shortest path, MST, topological sort, bipartite check; sizes small/medium/large)
+  `data/graphs_questions/` (10 problems: node count, edge count, node degree, neighbors, edge existence,
+  connectivity, connected components count, cycle check, shortest path, MST; sizes small/medium/large).
+  All graphs are undirected and unweighted, and 5 small graphs are disconnected (so "MST" = any spanning
+  forest). Topological sort (pseudocode only) and bipartite check have no questions; they come with the
+  scaled generator in M6.
 - `data/pseudocodes/` → become harness **skills** (per-task playbooks)
 - prompting methods in `graph_reasoning/` (none, CoT, build-a-graph, alg, 1-shot, 1-shot+pseudo)
   → **pure-prompting baselines**
@@ -48,6 +51,9 @@ Layers (bottom → top): execution (networkx etc.) → tool layer (MCP server) �
 4. **Structured final answers.** The loop ends when the model calls `submit_answer` with a per-task schema.
 5. **Verification is code, not the model.** Each task family has a programmatic verifier
    (valid path, proper coloring, valid topological order, MST weight, ...).
+   Verifiers check evidence; they never recompute the answer and compare (that would be an oracle).
+   Tasks whose answer can't be checked without recomputing it (counts, degree, "no" answers) run with
+   `verify=None` and are reported as unverified.
 6. **Show only relevant tools.** The router picks a task family; the agent sees only that family's tools.
 7. **Budgets everywhere:** max steps, max cost, loop detection (identical repeated calls).
 8. **Append-only message history** (keeps prompt caching effective).
@@ -99,7 +105,7 @@ docs/
 - **M0** Project setup: uv, layout, `.env` handling, LiteLLM smoke test.
 - **M1** Bare agent loop + 5 tools (graph_info, get_neighbors, shortest_path, connected_components, has_cycle)
   + `submit_answer` + JSONL logging, run on ported generator questions.
-- **M2** Verifiers for all 10 original problems; accuracy + cost report script.
+- **M2** Verifiers for the 10 dataset problems (evidence-only, see principle 5); accuracy + cost report script.
 - **M3** Full tool set as an MCP server, input validation, result handles, `run_python` sandbox.
 - **M4** Router + skills (ported pseudocodes); per-family tool filtering.
   Router = task classification (picks the registry entry, so also the answer type and verifier) +

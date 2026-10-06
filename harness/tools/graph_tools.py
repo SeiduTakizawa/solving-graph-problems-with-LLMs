@@ -79,6 +79,26 @@ def has_cycle(graph: nx.Graph) -> dict:
         return {"has_cycle": False}
 
 
+def minimum_spanning_tree(graph: nx.Graph) -> dict:
+    """A minimum spanning tree of G, or a minimum spanning forest (one tree per component) if G is not connected."""
+    # Spanning trees are only defined here for undirected graphs.
+    if graph.is_directed():
+        return {"error": "The graph is directed. Expected an undirected graph."}
+
+    mst_edges = list(nx.minimum_spanning_edges(graph, data=False))
+
+    edges = []
+    for u, v in mst_edges:
+        edges.append([min(u, v), max(u, v)])
+
+    edges.sort()
+
+    return {
+        "num_edges": len(edges),
+        "edges": edges
+    }
+
+
 # Tool name -> function. run_tool looks tools up here.
 TOOL_FUNCTIONS = {
     "get_neighbors": get_neighbors,
@@ -87,6 +107,7 @@ TOOL_FUNCTIONS = {
     "shortest_path": shortest_path,
     "connected_components": connected_components,
     "has_cycle": has_cycle,
+    "minimum_spanning_tree": minimum_spanning_tree,
 }
 
 # What the model is told about each tool (name, what it does, which arguments it takes).
@@ -149,6 +170,15 @@ GRAPH_TOOLS = [
         "function": {
             "name": "has_cycle",
             "description": "Return whether G contains a cycle.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "minimum_spanning_tree",
+            "description": "Return the edges of a minimum spanning tree of G (a minimum spanning forest, "
+                           "one tree per connected component, if G is not connected).",
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },

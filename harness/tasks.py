@@ -6,14 +6,14 @@ verifier that checks it. Ground truth and grading live in eval/tasks.py and neve
 from dataclasses import dataclass
 from typing import Callable
 
-from harness.verifiers import verify_shortest_path
+from harness.verifiers import verify_mst, verify_shortest_path
 
 
 @dataclass(frozen=True)
 class Task:
     name: str
     question: str  # template, filled in with the task's params, e.g. "What is the degree of node {node}?"
-    answer_type: str  # "number", "yes_no" or "node_list" (see harness/answers.py)
+    answer_type: str  # "number", "yes_no", "node_list" or "edge_list" (see harness/answers.py)
     verify: Callable | None = None  # verify(graph, params, answer) -> error message or None
 
     def make_question(self, params: dict) -> str:
@@ -32,4 +32,9 @@ TASKS = {task.name: task for task in [
     Task("shortest_path",
          "What is a shortest path from node {source} to node {target}? Answer with the list of nodes on the path.",
          "node_list", verify=verify_shortest_path),
+    # The dataset's graphs are unweighted and some are disconnected, so any spanning forest is a correct answer.
+    Task("mst",
+         "What is a minimum spanning tree of G? If G is not connected, give a minimum spanning forest "
+         "(one tree per connected component). Answer with the list of edges.",
+         "edge_list", verify=verify_mst),
 ]}

@@ -6,6 +6,9 @@ ANSWER_TYPES = {
     "number": {"schema": {"type": "integer"}, "description": "a whole number"},
     "yes_no": {"schema": {"type": "boolean"}, "description": "true or false"},
     "node_list": {"schema": {"type": "array", "items": {"type": "integer"}}, "description": "a list of node ids"},
+    "edge_list": {"schema": {"type": "array",
+                             "items": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2}},
+                  "description": "a list of edges, each a pair of node ids like [0, 2]"},
 }
 
 ENDING_TOOL_NAMES = ["submit_answer", "cannot_answer"]
@@ -36,6 +39,8 @@ def check_answer(answer, answer_type: str) -> str | None:
         "number": is_int(answer),
         "yes_no": isinstance(answer, bool),
         "node_list": isinstance(answer, list) and all(is_int(x) for x in answer),
+        "edge_list": isinstance(answer, list) and all(
+            isinstance(e, list) and len(e) == 2 and all(is_int(x) for x in e) for e in answer),
     }[answer_type]
     if ok:
         return None
