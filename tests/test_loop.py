@@ -100,6 +100,41 @@ def test_crashing_tool_does_not_crash_agent(monkeypatch):
     assert "EdgeView" in json.loads(tool_msg["content"])["error"]  # and the model saw the error
 
 
+def raw_tool_call(name, raw_arguments, call_id="call_1"):
+    """Like tool_call, but with the arguments string exactly as the model wrote it (possibly broken)."""
+    return {"role": "assistant", "content": "", "tool_calls": [
+        {"id": call_id, "type": "function", "function": {"name": name, "arguments": raw_arguments}}]}
+
+
+def test_broken_json_arguments_go_back_to_the_model():
+    model = fake_model(
+        raw_tool_call("get_neighbors", '{"node": 4', call_id="call_A"),  # unfinished JSON
+        tool_call("submit_answer", {"answer": 2}),
+    )
+    result = run_agent(QUESTION, GRAPH, call_model=model)
+
+    assert result.status == "submitted" and result.answer == 2  # the run survived
+    error = json.loads(result.messages[3]["content"])["error"]
+    assert result.messages[3]["tool_call_id"] == "call_A" and "not valid JSON" in error
+
+
+def test_arguments_that_are_not_an_object_go_back_to_the_model():
+    model = fake_model(raw_tool_call("get_neighbors", "[4]"), tool_call("submit_answer", {"answer": 2}))
+    result = run_agent(QUESTION, GRAPH, call_model=model)
+    assert "JSON object" in json.loads(result.messages[3]["content"])["error"]
+
+
+def test_broken_json_in_submit_answer_is_not_a_crash():
+    model = fake_model(raw_tool_call("submit_answer", '{"answer": '), tool_call("submit_answer", {"answer": 2}))
+    assert run_agent(QUESTION, GRAPH, call_model=model).answer == 2
+
+
+def test_empty_arguments_mean_no_arguments():
+    model = fake_model(raw_tool_call("graph_info", ""), tool_call("submit_answer", {"answer": 5}))
+    result = run_agent("How many edges does G have?", GRAPH, call_model=model)
+    assert json.loads(result.messages[3]["content"]) == {"nodes": 7, "edges": 5, "directed": False}
+
+
 # --- Answer types (the cycle question was answered with 0 for "no") ---
 
 def test_yes_no_answer():

@@ -34,6 +34,19 @@ class RunResult:
     evidence: dict | None = None  # extra fields sent with the answer, e.g. {"path": [...]} behind a "yes"
 
 
+def parse_arguments(raw) -> tuple[dict, str | None]:
+    """A tool call's arguments as a dict, or an error message for the model if they aren't a JSON object."""
+    if isinstance(raw, dict):  # some providers already send a dict
+        return raw, None
+    try:
+        args = json.loads(raw or "{}")  # arguments normally arrive as a JSON string; empty means none
+    except json.JSONDecodeError as e:
+        return {}, f"Your arguments are not valid JSON ({e.msg}). Send them again as a JSON object."
+    if not isinstance(args, dict):
+        return {}, "Your arguments must be a JSON object, e.g. {\"node\": 4}."
+    return args, None
+
+
 def reply_signature(reply: dict) -> tuple:
     """What the model said, ignoring the random tool-call ids, so identical replies compare equal."""
     calls = tuple((c["function"]["name"], c["function"]["arguments"]) for c in reply.get("tool_calls") or [])
@@ -108,9 +121,11 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
         tool_calls = reply["tool_calls"] or []
         for call in tool_calls:
             name = call["function"]["name"]
-            args = json.loads(call["function"]["arguments"])  # arguments arrive as a JSON string
+            args, args_error = parse_arguments(call["function"]["arguments"])
 
-            if name == "submit_answer":
+            if args_error:  # broken JSON: tell the model instead of crashing the run
+                result = {"error": args_error}
+            elif name == "submit_answer":
                 evidence = {field: args.get(field) for field in evidence_fields(answer_type)}
                 error = check_answer(args.get("answer"), answer_type)
                 if error is None and verify is not None:

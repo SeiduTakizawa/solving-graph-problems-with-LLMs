@@ -198,7 +198,8 @@ GRAPH_TOOLS = [
 
 def describe_errors(error: ValidationError) -> str:
     """Pydantic's errors as one short line for the model, e.g. "node: Field required"."""
-    return "; ".join(f"{'.'.join(map(str, e['loc'])) or 'arguments'}: {e['msg']}" for e in error.errors())
+    return "; ".join(f"{'.'.join(map(str, e['loc'])) or 'arguments'}: {e['msg'].removeprefix('Value error, ')}"
+                     for e in error.errors())
 
 
 def run_tool(graph: nx.Graph, name: str, args: dict) -> dict:
