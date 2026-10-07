@@ -126,6 +126,8 @@ docs/
   carries the path / cycle as evidence), connected_nodes (partial); counts, degree, edge existence and any "no"
   are unverified by design. Report script `eval/analysis/report.py` done.
 - Pilot on large graphs done (`results/harness_runs/m2_pilot_large_verify/`, findings in `docs/learning_log.md`).
+- `degree` tool added (node_degree ~8× faster, same accuracy); it's in the default tool set now
+  (`--without-tool degree` reproduces the old setup).
 - Next: fixes A/B from the pilot (evidence wording, "G is undirected" prompt line), then the M2 runs on the GPU
   machine (checkers on vs off; small all tasks, large at least mst / connected_nodes / node_degree), then the
   closing learning-log entry.

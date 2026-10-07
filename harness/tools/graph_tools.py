@@ -11,6 +11,22 @@ def get_neighbors(graph: nx.Graph, node: int) -> dict:
     return {"neighbors": sorted(graph.neighbors(node))}
 
 
+def degree(graph: nx.Graph, node: int) -> dict:
+    """The degree of a node: how many edges touch it.
+
+    Return:
+      - if the node doesn't exist: {"error": "Node ... does not exist. ..."}
+      - undirected G: {"degree": <number of neighbors>}
+      - directed G:   {"degree": <in + out>, "in_degree": <...>, "out_degree": <...>}
+    The model doesn't need to know whether G is directed: the tool handles both.
+    """
+    if node not in graph:
+        return {"error": f"Node {node} does not exist. Nodes are {sorted(graph.nodes)}."}
+    if graph.is_directed():
+        return {"degree": graph.degree(node), "in_degree": graph.in_degree(node), "out_degree": graph.out_degree(node)}
+    return {"degree": graph.degree(node)}
+
+
 def has_edge(graph: nx.Graph, u: int, v: int) -> dict:
     for node in (u, v):
         if node not in graph:
@@ -102,6 +118,7 @@ def minimum_spanning_tree(graph: nx.Graph) -> dict:
 # Tool name -> function. run_tool looks tools up here.
 TOOL_FUNCTIONS = {
     "get_neighbors": get_neighbors,
+    "degree": degree,
     "has_edge": has_edge,
     "graph_info": graph_info,
     "shortest_path": shortest_path,
@@ -117,6 +134,18 @@ GRAPH_TOOLS = [
         "function": {
             "name": "get_neighbors",
             "description": "Return the list of neighbors of a node in G.",
+            "parameters": {
+                "type": "object",
+                "properties": {"node": {"type": "integer"}},
+                "required": ["node"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "degree",
+            "description": "Return the degree of a node (for a directed graph: in-degree + out-degree).",
             "parameters": {
                 "type": "object",
                 "properties": {"node": {"type": "integer"}},

@@ -309,3 +309,33 @@ Two ways, and they answer different questions:
   key, < $0.25 for 6 questions). A Claude.ai / Claude Code subscription can't be used from our own scripts.
 - **Different harness** (Claude Code headless, `claude -p`, on the subscription) with our tools through an MCP
   server: this is the M6 baseline and the thesis's main comparison. Needs the MCP server from M3 (new dependency).
+
+---
+
+## 2026-10-07: A `degree` tool (ablation, large graphs)
+
+`degree(node)` returns the degree (in + out for a directed graph, with both parts). Its description says how
+directed graphs are handled without saying whether *this* G is directed, so the model doesn't need to know.
+Same 6 node_degree questions as the pilot (large, dev, qwen3:8b on the M4 Mac, 1 run). Results in
+`results/harness_runs/degree_tool_large_pilot/` vs `m2_pilot_large_verify/`.
+
+| | without `degree` | with `degree` |
+|---|---|---|
+| correct | 6/6 | 6/6 |
+| time / question | 133 s (max 223 s) | **17 s** (max 23 s), ~8× faster |
+| output tokens (mostly thinking) | 1,988 | **264**, ~7.5× fewer |
+| total tokens | 3,758 | 1,582 |
+| rescued text tool calls | 4/6 | 1/6 |
+| tools used | `graph_info` → `get_neighbors` (4), `get_neighbors` (2) | `degree` (6) |
+
+In the pilot the model's first thought was "there's no function called degree, so get_neighbors is the way to
+go", and the directed/undirected debate started from there. With the tool, the plan is obvious and the debate
+never starts; the counting disappears too.
+
+**Pattern (2nd time, after `has_edge`, also ~8×):** when a task has a tool that answers it directly, a small
+model stops reasoning about *how* to answer. Same accuracy, a fraction of the cost. Move decisions the model is
+bad at (what does "degree" mean here, counting a 45-item list) into tools.
+
+**Note for experiments:** `degree` is now in the default tool set, so runs from here on are not directly
+comparable with earlier node_degree runs; use `--without-tool degree` to reproduce the old setup. Baselines in M6
+must get the same tool.

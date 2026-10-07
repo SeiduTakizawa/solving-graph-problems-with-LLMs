@@ -26,6 +26,28 @@ def test_get_neighbors_matches_networkx(graphs):
             assert result == {"neighbors": sorted(graph.neighbors(node))}
 
 
+def test_degree_matches_networkx(graphs):
+    for graph in graphs:
+        for node in graph.nodes:
+            assert run_tool(graph, "degree", {"node": node}) == {"degree": graph.degree(node)}
+
+
+def test_degree_of_directed_graph_is_in_plus_out():
+    g = nx.DiGraph([(0, 1), (2, 1), (1, 3)])  # node 1: two edges in, one out
+    assert run_tool(g, "degree", {"node": 1}) == {"degree": 3, "in_degree": 2, "out_degree": 1}
+
+
+def test_degree_of_isolated_node_is_zero():
+    g = nx.Graph([(0, 1)])
+    g.add_node(2)
+    assert run_tool(g, "degree", {"node": 2}) == {"degree": 0}
+
+
+def test_degree_missing_node_is_an_error():
+    result = run_tool(nx.path_graph(3), "degree", {"node": 99})
+    assert "does not exist" in result["error"]
+
+
 def test_has_edge_matches_networkx(graphs):
     for graph in graphs:
         nodes = sorted(graph.nodes)
