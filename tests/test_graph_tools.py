@@ -1,11 +1,12 @@
 """Graph tools checked against networkx on every graph in the dataset."""
 import inspect
+import json
 from pathlib import Path
 
 import networkx as nx
 import pytest
 
-from harness.tools.graph_tools import GRAPH_TOOLS, TOOL_FUNCTIONS, run_tool
+from harness.tools.graph_tools import GRAPH_TOOLS, TOOLS, run_tool
 
 GRAPH_FILES = sorted((Path(__file__).parents[1] / "data" / "graphs" / "er").glob("*/*.txt"))
 
@@ -162,18 +163,54 @@ def test_bad_arguments_are_an_error(args):
     assert "Bad arguments" in result["error"]
 
 
-# The descriptions the model sees must match the real functions.
+# Argument validation (Pydantic): clear errors instead of crashes or wrong answers.
 
-def test_every_tool_has_a_description_and_vice_versa():
-    described = {t["function"]["name"] for t in GRAPH_TOOLS}
-    assert described == set(TOOL_FUNCTIONS)
+def test_node_id_as_string_is_accepted():
+    # "3" is clearly node 3; before Pydantic it was looked up as the string "3" and reported missing.
+    assert run_tool(nx.path_graph(5), "get_neighbors", {"node": "3"}) == {"neighbors": [2, 4]}
+
+
+def test_true_is_not_a_node_id():
+    result = run_tool(nx.path_graph(3), "get_neighbors", {"node": True})  # True == 1 in Python
+    assert "Bad arguments" in result["error"] and "true/false" in result["error"]
+
+
+def test_missing_argument_names_the_field():
+    result = run_tool(nx.path_graph(3), "shortest_path", {"source": 0})
+    assert "Bad arguments for shortest_path" in result["error"] and "target" in result["error"]
+
+
+def test_extra_argument_names_the_field():
+    result = run_tool(nx.path_graph(3), "graph_info", {"verbose": True})
+    assert "verbose" in result["error"]
+
+
+def test_fractional_node_id_is_an_error():
+    assert "Bad arguments" in run_tool(nx.path_graph(3), "get_neighbors", {"node": 1.5})["error"]
+
+
+def test_arguments_that_are_not_an_object_are_an_error():
+    assert "Bad arguments" in run_tool(nx.path_graph(3), "get_neighbors", [1])["error"]
+
+
+# The descriptions the model sees are generated from the argument models, so they must match the functions.
+
+def test_every_tool_has_a_description():
+    assert [t["function"]["name"] for t in GRAPH_TOOLS] == list(TOOLS)
 
 
 @pytest.mark.parametrize("schema", GRAPH_TOOLS, ids=lambda t: t["function"]["name"])
 def test_described_arguments_match_function(schema):
-    fn = TOOL_FUNCTIONS[schema["function"]["name"]]
+    fn = TOOLS[schema["function"]["name"]].function
     params = schema["function"]["parameters"]
     real_args = [p for p in inspect.signature(fn).parameters if p != "graph"]
 
     assert sorted(params["properties"]) == sorted(real_args)
     assert set(params["required"]) <= set(params["properties"])  # can't require an argument that doesn't exist
+
+
+@pytest.mark.parametrize("schema", GRAPH_TOOLS, ids=lambda t: t["function"]["name"])
+def test_schema_is_short(schema):
+    # Pydantic adds titles and additionalProperties; they only cost tokens, so they are trimmed.
+    text = json.dumps(schema)
+    assert '"title"' not in text and "additionalProperties" not in text

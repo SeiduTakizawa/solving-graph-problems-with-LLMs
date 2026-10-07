@@ -1,21 +1,47 @@
 """The two tools that end a run: submit_answer (one per answer type) and cannot_answer."""
 import json
+from typing import Annotated
+
+from annotated_types import Len
+from pydantic import StrictBool, StrictInt, TypeAdapter, ValidationError
+
+# Pydantic type of each answer. It checks submitted answers and generates the schema the model sees.
+# Strict types: in Python True/False are also ints, so a number must not be a bool and vice versa.
+Edge = Annotated[list[StrictInt], Len(2, 2)]
+ANSWER_MODELS = {
+    "number": StrictInt,
+    "yes_no": StrictBool,
+    "node_list": list[StrictInt],
+    "edge_list": list[Edge],
+    "yes_no_with_path": StrictBool,
+    "yes_no_with_cycle": StrictBool,
+}
+_ADAPTERS = {name: TypeAdapter(t) for name, t in ANSWER_MODELS.items()}
+
+
+def _schema(answer_type: str) -> dict:
+    """The answer's JSON schema. Pydantic sorts the keys alphabetically; they are put back in the order the
+    hand-written schemas had, so the text the model sees is byte-identical to earlier runs."""
+    schema = _ADAPTERS[answer_type].json_schema()
+    if "items" in schema and "items" in schema["items"]:  # edge_list: a list of [u, v] pairs
+        schema["items"] = {"type": "array", "items": schema["items"]["items"],
+                           "minItems": schema["items"]["minItems"], "maxItems": schema["items"]["maxItems"]}
+    return {"type": schema["type"], "items": schema["items"]} if "items" in schema else schema
+
 
 # The shape of the final answer, per kind of question. submit_answer is built to match.
 ANSWER_TYPES = {
-    "number": {"schema": {"type": "integer"}, "description": "a whole number"},
-    "yes_no": {"schema": {"type": "boolean"}, "description": "true or false"},
-    "node_list": {"schema": {"type": "array", "items": {"type": "integer"}}, "description": "a list of node ids"},
-    "edge_list": {"schema": {"type": "array",
-                             "items": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2}},
-                  "description": "a list of edges, each a pair of node ids like [0, 2]"},
+    "number": {"schema": _schema("number"), "description": "a whole number"},
+    "yes_no": {"schema": _schema("yes_no"), "description": "true or false"},
+    "node_list": {"schema": _schema("node_list"), "description": "a list of node ids"},
+    "edge_list": {"schema": _schema("edge_list"), "description": "a list of edges, each a pair of node ids like [0, 2]"},
     # Yes/no answers that come with evidence for a "yes", so a verifier can check them. The answer itself is
     # still true/false; the evidence is an extra field of submit_answer that is passed on to the verifier.
-    "yes_no_with_path": {"schema": {"type": "boolean"}, "description": "true or false",
+    "yes_no_with_path": {"schema": _schema("yes_no_with_path"), "description": "true or false",
                          "evidence": {"path": {"type": "array", "items": {"type": "integer"},
                                                "description": "If your answer is true: the path you found, "
                                                               "as a list of nodes from the first node to the second."}}},
-    "yes_no_with_cycle": {"schema": {"type": "boolean"}, "description": "true or false",
+    "yes_no_with_cycle": {"schema": _schema("yes_no_with_cycle"), "description": "true or false",
                           "evidence": {"cycle": {"type": "array", "items": {"type": "integer"},
                                                  "description": "If your answer is true: the nodes of one cycle "
                                                                 "in order, e.g. [0, 1, 2] for the cycle 0-1-2-0."}}},
@@ -44,21 +70,12 @@ def make_submit_answer(answer_type: str) -> dict:
 
 def check_answer(answer, answer_type: str) -> str | None:
     """None if the answer has the right shape, otherwise an error message for the model."""
-    # Careful: in Python True/False are also ints, so a number must not be a bool and vice versa.
-    is_int = lambda x: isinstance(x, int) and not isinstance(x, bool)
-    ok = {
-        "number": is_int(answer),
-        "yes_no": isinstance(answer, bool),
-        "yes_no_with_path": isinstance(answer, bool),
-        "yes_no_with_cycle": isinstance(answer, bool),
-        "node_list": isinstance(answer, list) and all(is_int(x) for x in answer),
-        "edge_list": isinstance(answer, list) and all(
-            isinstance(e, list) and len(e) == 2 and all(is_int(x) for x in e) for e in answer),
-    }[answer_type]
-    if ok:
+    try:
+        _ADAPTERS[answer_type].validate_python(answer)
         return None
-    return (f"Invalid answer {json.dumps(answer)}: the answer must be {ANSWER_TYPES[answer_type]['description']}. "
-            "Call submit_answer again with the right type.")
+    except ValidationError:
+        return (f"Invalid answer {json.dumps(answer)}: the answer must be {ANSWER_TYPES[answer_type]['description']}. "
+                "Call submit_answer again with the right type.")
 
 
 def evidence_fields(answer_type: str) -> list[str]:

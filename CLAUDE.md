@@ -128,7 +128,11 @@ docs/
 - Pilot on large graphs done (`results/harness_runs/m2_pilot_large_verify/`, findings in `docs/learning_log.md`).
 - `degree` tool added (node_degree ~8× faster, same accuracy); it's in the default tool set now
   (`--without-tool degree` reproduces the old setup).
-- Next: fixes A/B from the pilot (evidence wording, "G is undirected" prompt line), then the M2 runs on the GPU
+- **M3 started** (plan approved 2026-10-07: 1 Pydantic schemas, 2 fuller tool set, 3 result handles,
+  4 MCP server, 5 `run_python` sandbox, 6 close-out). Step 1 done: tool arguments and answers are Pydantic
+  models; schemas the model sees are generated from them (byte-identical to before). Open decisions: `mcp`
+  package as a dependency; Docker vs OrbStack/Colima for the sandbox (no Docker on the MacBook yet).
+- M2 still open: fixes A/B from the pilot (evidence wording, "G is undirected" prompt line), then the M2 runs on the GPU
   machine (checkers on vs off; small all tasks, large at least mst / connected_nodes / node_degree), then the
   closing learning-log entry.
 - Machines: GPU machine (RTX 5070) for real runs; MacBook Air M4 has Ollama + qwen3:8b but is ~4.5× slower

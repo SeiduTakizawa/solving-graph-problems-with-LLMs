@@ -151,6 +151,9 @@ def test_check_answer():
     assert check_answer([1, True], "node_list") is not None
     assert check_answer(True, "yes_no_with_path") is None
     assert check_answer(1, "yes_no_with_cycle") is not None
+    assert check_answer([[0, 1], [1, 2]], "edge_list") is None
+    assert check_answer([[0, 1, 2]], "edge_list") is not None  # not a pair
+    assert check_answer(None, "number") is not None  # submit_answer without an answer
 
 
 # --- Verifier: a wrong final answer goes back to the model ---

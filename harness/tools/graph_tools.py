@@ -1,8 +1,43 @@
 """Graph tools the agent can call. Each tool takes the graph plus its arguments and returns a dict.
 
 Tools never raise: bad input comes back as {"error": "..."} so the model can correct itself.
+
+Each tool's arguments are a Pydantic model. It is the single source of truth: run_tool validates the
+model's arguments with it, and the JSON schema the model sees (GRAPH_TOOLS) is generated from it.
 """
+from dataclasses import dataclass
+from typing import Annotated, Callable
+
 import networkx as nx
+from pydantic import BaseModel, BeforeValidator, ConfigDict, ValidationError
+
+
+def _not_a_bool(value):
+    # In Python True == 1, so a plain int would accept true as node 1. "3" is fine: it is clearly node 3.
+    if isinstance(value, bool):
+        raise ValueError("a node id must be an integer, not true/false")
+    return value
+
+
+NodeId = Annotated[int, BeforeValidator(_not_a_bool)]
+
+
+class NoArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # an unknown argument is an error, not silently ignored
+
+
+class NodeArgs(NoArgs):
+    node: NodeId
+
+
+class EdgeArgs(NoArgs):
+    u: NodeId
+    v: NodeId
+
+
+class PathArgs(NoArgs):
+    source: NodeId
+    target: NodeId
 
 
 def get_neighbors(graph: nx.Graph, node: int) -> dict:
@@ -115,110 +150,64 @@ def minimum_spanning_tree(graph: nx.Graph) -> dict:
     }
 
 
-# Tool name -> function. run_tool looks tools up here.
-TOOL_FUNCTIONS = {
-    "get_neighbors": get_neighbors,
-    "degree": degree,
-    "has_edge": has_edge,
-    "graph_info": graph_info,
-    "shortest_path": shortest_path,
-    "connected_components": connected_components,
-    "has_cycle": has_cycle,
-    "minimum_spanning_tree": minimum_spanning_tree,
+@dataclass(frozen=True)
+class Tool:
+    function: Callable  # function(graph, **args) -> dict
+    args: type[BaseModel]
+    description: str  # what the model is told the tool does
+
+
+# Every tool the agent can be offered, in the order the model sees them.
+TOOLS = {
+    "get_neighbors": Tool(get_neighbors, NodeArgs, "Return the list of neighbors of a node in G."),
+    "degree": Tool(degree, NodeArgs, "Return the degree of a node (for a directed graph: in-degree + out-degree)."),
+    "has_edge": Tool(has_edge, EdgeArgs, "Return whether there is an edge between nodes u and v in G."),
+    "graph_info": Tool(graph_info, NoArgs, "Return the number of nodes and edges of G, and whether it is directed."),
+    "shortest_path": Tool(shortest_path, PathArgs, "Return a shortest path between two nodes and its length "
+                                                   "(number of edges), or reachable=false if there is no path."),
+    "connected_components": Tool(connected_components, NoArgs,
+                                 "Return the number of connected components of G and the nodes in each one."),
+    "has_cycle": Tool(has_cycle, NoArgs, "Return whether G contains a cycle, and the nodes of one cycle if it does."),
+    "minimum_spanning_tree": Tool(minimum_spanning_tree, NoArgs,
+                                  "Return the edges of a minimum spanning tree of G (a minimum spanning forest, "
+                                  "one tree per connected component, if G is not connected)."),
 }
+
+
+def json_schema(model: type[BaseModel]) -> dict:
+    """The model's JSON schema, trimmed to what the LLM needs: no titles (they only cost tokens) and no
+    additionalProperties (extra arguments are still rejected by run_tool)."""
+    schema = model.model_json_schema()
+
+    def trim(node):
+        if isinstance(node, dict):
+            return {k: trim(v) for k, v in node.items() if k not in ("title", "additionalProperties")}
+        return node
+
+    schema = trim(schema)
+    return {"type": "object", "properties": schema.get("properties", {}), "required": schema.get("required", [])}
+
 
 # What the model is told about each tool (name, what it does, which arguments it takes).
 GRAPH_TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_neighbors",
-            "description": "Return the list of neighbors of a node in G.",
-            "parameters": {
-                "type": "object",
-                "properties": {"node": {"type": "integer"}},
-                "required": ["node"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "degree",
-            "description": "Return the degree of a node (for a directed graph: in-degree + out-degree).",
-            "parameters": {
-                "type": "object",
-                "properties": {"node": {"type": "integer"}},
-                "required": ["node"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "has_edge",
-            "description": "Return whether there is an edge between nodes u and v in G.",
-            "parameters": {
-                "type": "object",
-                "properties": {"u": {"type": "integer"}, "v": {"type": "integer"}},
-                "required": ["u", "v"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "graph_info",
-            "description": "Return the number of nodes and edges of G, and whether it is directed.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "shortest_path",
-            "description": "Return a shortest path between two nodes and its length (number of edges), "
-                           "or reachable=false if there is no path.",
-            "parameters": {
-                "type": "object",
-                "properties": {"source": {"type": "integer"}, "target": {"type": "integer"}},
-                "required": ["source", "target"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "connected_components",
-            "description": "Return the number of connected components of G and the nodes in each one.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "has_cycle",
-            "description": "Return whether G contains a cycle, and the nodes of one cycle if it does.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "minimum_spanning_tree",
-            "description": "Return the edges of a minimum spanning tree of G (a minimum spanning forest, "
-                           "one tree per connected component, if G is not connected).",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
+    {"type": "function",
+     "function": {"name": name, "description": tool.description, "parameters": json_schema(tool.args)}}
+    for name, tool in TOOLS.items()
 ]
 
 
+def describe_errors(error: ValidationError) -> str:
+    """Pydantic's errors as one short line for the model, e.g. "node: Field required"."""
+    return "; ".join(f"{'.'.join(map(str, e['loc'])) or 'arguments'}: {e['msg']}" for e in error.errors())
+
+
 def run_tool(graph: nx.Graph, name: str, args: dict) -> dict:
-    """Run one tool by name and return its result."""
-    if name not in TOOL_FUNCTIONS:
-        return {"error": f"Unknown tool {name}. Available tools: {sorted(TOOL_FUNCTIONS)}."}
+    """Validate the arguments, run one tool by name and return its result."""
+    if name not in TOOLS:
+        return {"error": f"Unknown tool {name}. Available tools: {sorted(TOOLS)}."}
+    tool = TOOLS[name]
     try:
-        return TOOL_FUNCTIONS[name](graph, **args)
-    except TypeError as e:  # wrong or missing arguments, e.g. get_neighbors without "node"
-        return {"error": f"Bad arguments for {name}: {e}"}
+        valid = tool.args.model_validate(args)
+    except ValidationError as e:  # missing, extra or wrongly typed arguments
+        return {"error": f"Bad arguments for {name}: {describe_errors(e)}"}
+    return tool.function(graph, **valid.model_dump())

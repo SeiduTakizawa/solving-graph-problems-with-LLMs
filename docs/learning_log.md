@@ -339,3 +339,26 @@ bad at (what does "degree" mean here, counting a 45-item list) into tools.
 **Note for experiments:** `degree` is now in the default tool set, so runs from here on are not directly
 comparable with earlier node_degree runs; use `--without-tool degree` to reproduce the old setup. Baselines in M6
 must get the same tool.
+
+---
+
+## 2026-10-07: M3 step 1, Pydantic for tool arguments and answers
+
+Each tool's arguments are now a Pydantic model (`NodeArgs`, `EdgeArgs`, `PathArgs`, `NoArgs`), registered once in
+`TOOLS` (function + args model + description). The schema the model sees (`GRAPH_TOOLS`) is generated from it, and
+`run_tool` validates with it. Answer types work the same way (`ANSWER_MODELS`, strict types), and `check_answer`
+validates with them. Before, every tool was described twice (function + hand-written JSON) with a test to keep
+them in sync.
+
+- **The prompt didn't change.** Generated schemas are byte-identical to the old hand-written ones (titles and
+  `additionalProperties` trimmed, key order kept), so all earlier results stay comparable. Checked by dumping
+  both and comparing.
+- **Better errors for the model:** "Bad arguments for shortest_path: target: Field required", "verbose: Extra
+  inputs are not permitted", "node: a node id must be an integer, not true/false".
+- **Two behaviour fixes:** `"3"` is now accepted as node 3 (before, it was looked up as the string "3" and
+  reported as a missing node, which is a confusing error); `true` as a node id is rejected (plain `int` in Pydantic
+  turns `True` into 1, so node ids use a custom type that refuses bools).
+- Smoke test, all 10 tasks on small graphs with qwen3:8b: 10/10, no argument errors.
+
+**Lesson:** a schema the model reads and the validation the harness runs should come from the same definition;
+two copies drift. And check what a library's "lax" mode accepts: Pydantic's `int` happily takes `True`.
