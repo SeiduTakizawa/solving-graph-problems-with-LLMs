@@ -378,3 +378,33 @@ two copies drift. And check what a library's "lax" mode accepts: Pydantic's `int
   unchanged before/after; the pilot shows 100% lenient vs 79.6% strict.
 - Small: `missing_node()` helper instead of 5 copies of the same error, `partial(task.verify, graph, params)`
   instead of a lambda with default arguments, `list(TOOLS)` instead of digging names out of the schemas.
+
+---
+
+## 2026-10-07: M3 step 2, three new tools (all return evidence)
+
+| tool | returns | evidence for |
+|---|---|---|
+| `has_path(source, target)` | `reachable` + one path | a "yes" to connectivity |
+| `is_bipartite()` | `side_a`/`side_b`, or an `odd_cycle` | **both** answers: a valid 2-coloring proves yes, an odd cycle proves no |
+| `topological_sort()` | `order`, or a directed `cycle`; error on undirected G | both answers |
+
+Design rule: **a tool should return the proof of its answer**, not just the answer, so a checker can verify it
+later without solving the question again. For bipartite that even covers the "no", which our connectivity and
+cycle checkers can't do. The odd cycle comes from the BFS coloring itself: when an edge joins two nodes of the
+same color, walking both up the BFS tree to where they meet gives an odd cycle.
+
+Tests: against networkx on all 300 dataset graphs and on random graphs (only 7 small dataset graphs are bipartite
+and the dataset has no directed graphs, so random graphs carry most of the coverage); evidence is checked, not just
+the yes/no.
+
+Smoke test, 4 connectivity questions (small, qwen3:8b): it picked `has_path` every time and sent the path as
+evidence on the first try (in the pilot, cycle_check left the evidence out 5 times out of 6).
+
+**Costs to keep in mind:**
+- The tool list the model reads on every call grew from ~2,000 to ~2,800 characters (+38%, roughly +200 tokens
+  per call). Per-family tool filtering in M4 is what fixes this.
+- The default tool set changed again, so new runs aren't directly comparable with older ones. To reproduce the
+  pilot's tool set: `--without-tool degree --without-tool has_path --without-tool is_bipartite
+  --without-tool topological_sort`. The M2 runs should fix one tool set and say which.
+- `is_bipartite` and `topological_sort` have no questions in the dataset yet (they come with the M6 generator).

@@ -145,6 +145,111 @@ def test_minimum_spanning_tree_directed_is_an_error():
     assert "directed" in result["error"]
 
 
+def test_has_path_matches_networkx(graphs):
+    for graph in graphs:
+        for source in graph.nodes:
+            for target in graph.nodes:
+                result = run_tool(graph, "has_path", {"source": source, "target": target})
+                assert result["reachable"] == nx.has_path(graph, source, target)
+                if result["reachable"]:
+                    path = result["path"]
+                    assert path[0] == source and path[-1] == target
+                    assert all(graph.has_edge(u, v) for u, v in zip(path, path[1:]))
+                else:
+                    assert result == {"reachable": False}
+
+
+def test_has_path_follows_edge_directions():
+    g = nx.DiGraph([(0, 1), (1, 2)])
+    assert run_tool(g, "has_path", {"source": 0, "target": 2})["path"] == [0, 1, 2]
+    assert run_tool(g, "has_path", {"source": 2, "target": 0}) == {"reachable": False}
+
+
+def test_has_path_missing_node_is_an_error():
+    assert "does not exist" in run_tool(nx.path_graph(3), "has_path", {"source": 0, "target": 9})["error"]
+
+
+def check_bipartite_evidence(graph, result):
+    """The evidence must prove the answer: a proper 2-coloring, or a real odd cycle."""
+    g = graph.to_undirected() if graph.is_directed() else graph
+    if result["bipartite"]:
+        a, b = set(result["side_a"]), set(result["side_b"])
+        assert a | b == set(g.nodes) and not a & b  # every node on exactly one side
+        assert all((u in a) != (v in a) for u, v in g.edges)  # every edge goes between the sides
+    else:
+        cycle = result["odd_cycle"]
+        assert len(cycle) % 2 == 1 and len(set(cycle)) == len(cycle)
+        assert all(g.has_edge(u, v) for u, v in zip(cycle, cycle[1:] + cycle[:1]))
+
+
+def test_is_bipartite_matches_networkx(graphs):
+    for graph in graphs:
+        result = run_tool(graph, "is_bipartite", {})
+        assert result["bipartite"] == nx.is_bipartite(graph)
+        check_bipartite_evidence(graph, result)
+
+
+@pytest.mark.parametrize("graph, expected", [
+    (nx.path_graph(5), True),
+    (nx.cycle_graph(6), True),     # even cycle
+    (nx.cycle_graph(5), False),    # odd cycle
+    (nx.complete_bipartite_graph(3, 4), True),
+    (nx.complete_graph(4), False),  # has triangles
+    (nx.empty_graph(3), True),     # no edges: trivially bipartite
+    (nx.Graph([(0, 1), (2, 3), (3, 4), (4, 2)]), False),  # odd cycle in the second component only
+    (nx.DiGraph([(0, 1), (1, 2), (2, 0)]), False),         # directions ignored: a triangle
+], ids=["path", "even_cycle", "odd_cycle", "K3_4", "K4", "no_edges", "second_component", "directed_triangle"])
+def test_is_bipartite_small_cases(graph, expected):
+    result = run_tool(graph, "is_bipartite", {})
+    assert result["bipartite"] is expected
+    check_bipartite_evidence(graph, result)
+
+
+def test_is_bipartite_on_random_graphs():
+    for seed in range(200):
+        graph = nx.gnp_random_graph(12, 0.2, seed=seed)
+        result = run_tool(graph, "is_bipartite", {})
+        assert result["bipartite"] == nx.is_bipartite(graph)
+        check_bipartite_evidence(graph, result)
+
+
+def check_order(graph, order):
+    position = {node: i for i, node in enumerate(order)}
+    assert sorted(order) == sorted(graph.nodes)
+    assert all(position[u] < position[v] for u, v in graph.edges)
+
+
+def test_topological_sort_on_random_dags():
+    for seed in range(100):
+        g = nx.gnp_random_graph(15, 0.2, seed=seed, directed=True)
+        dag = nx.DiGraph((u, v) for u, v in g.edges if u < v)  # edges only go "up": no cycles
+        dag.add_nodes_from(g)
+        result = run_tool(dag, "topological_sort", {})
+        assert result["is_dag"] is True
+        check_order(dag, result["order"])
+
+
+def test_topological_sort_finds_a_cycle():
+    for seed in range(100):
+        g = nx.gnp_random_graph(10, 0.3, seed=seed, directed=True)
+        result = run_tool(g, "topological_sort", {})
+        assert result["is_dag"] == nx.is_directed_acyclic_graph(g)
+        if result["is_dag"]:
+            check_order(g, result["order"])
+        else:
+            cycle = result["cycle"]
+            assert all(g.has_edge(u, v) for u, v in zip(cycle, cycle[1:] + cycle[:1]))
+
+
+def test_topological_sort_is_always_the_same():
+    g = nx.DiGraph([(3, 1), (2, 1), (0, 2)])
+    assert run_tool(g, "topological_sort", {})["order"] == [0, 2, 3, 1]
+
+
+def test_topological_sort_of_undirected_graph_is_an_error():
+    assert "directed" in run_tool(nx.path_graph(3), "topological_sort", {})["error"]
+
+
 # Tools never raise: every bad input comes back as an error the model can read.
 
 def test_missing_node_is_an_error():

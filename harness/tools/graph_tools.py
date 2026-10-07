@@ -148,6 +148,74 @@ def minimum_spanning_tree(graph: nx.Graph) -> dict:
     }
 
 
+def has_path(graph: nx.Graph, source: int, target: int) -> dict:
+    """Whether target can be reached from source, with one path as evidence.
+
+    Return: {"reachable": True, "path": [source, ..., target]} or {"reachable": False}
+    (in a directed graph, along the edge directions).
+    """
+    if error := missing_node(graph, source, target):
+        return error
+    try:
+        return {"reachable": True, "path": nx.shortest_path(graph, source, target)}
+    except nx.NetworkXNoPath:
+        return {"reachable": False}
+
+
+def _odd_cycle(parent: dict, depth: dict, u: int, v: int) -> list[int]:
+    """The odd cycle closed by edge u-v when u and v got the same color in a BFS:
+    walk both up the BFS tree to where they meet, then join the two halves."""
+    left, right = [u], [v]
+    while left[-1] != right[-1]:
+        if depth[left[-1]] >= depth[right[-1]]:
+            left.append(parent[left[-1]])
+        else:
+            right.append(parent[right[-1]])
+    return left + right[-2::-1]  # u ... meeting point ... v (the edge v-u closes it)
+
+
+def is_bipartite(graph: nx.Graph) -> dict:
+    """Whether G's nodes split into two sides with every edge going between them, with evidence either way.
+
+    Return:
+      - {"bipartite": True, "side_a": [nodes], "side_b": [nodes]}
+      - {"bipartite": False, "odd_cycle": [nodes in order]}  (a cycle of odd length can't be 2-colored)
+    Edge directions are ignored.
+    """
+    undirected = graph.to_undirected(as_view=True) if graph.is_directed() else graph
+    color, parent, depth = {}, {}, {}
+    for start in sorted(undirected.nodes):
+        if start in color:
+            continue
+        color[start], depth[start], queue = 0, 0, [start]
+        for node in queue:  # BFS: neighbors get the other color
+            for other in sorted(undirected.neighbors(node)):
+                if other not in color:
+                    color[other], parent[other], depth[other] = 1 - color[node], node, depth[node] + 1
+                    queue.append(other)
+                elif color[other] == color[node]:
+                    return {"bipartite": False, "odd_cycle": _odd_cycle(parent, depth, node, other)}
+    return {"bipartite": True,
+            "side_a": sorted(n for n, c in color.items() if c == 0),
+            "side_b": sorted(n for n, c in color.items() if c == 1)}
+
+
+def topological_sort(graph: nx.Graph) -> dict:
+    """An order of the nodes where every edge goes from an earlier node to a later one (directed graphs only).
+
+    Return:
+      - if G is undirected: {"error": "..."}
+      - {"is_dag": True, "order": [nodes]}  (the smallest such order, so it is always the same)
+      - {"is_dag": False, "cycle": [nodes in order]}  (a directed cycle: no order exists)
+    """
+    if not graph.is_directed():
+        return {"error": "Topological sort needs a directed graph, and G is undirected."}
+    try:
+        return {"is_dag": True, "order": list(nx.lexicographical_topological_sort(graph))}
+    except nx.NetworkXUnfeasible:
+        return {"is_dag": False, "cycle": [u for u, v in nx.find_cycle(graph)]}
+
+
 @dataclass(frozen=True)
 class Tool:
     function: Callable  # function(graph, **args) -> dict
@@ -169,6 +237,12 @@ TOOLS = {
     "minimum_spanning_tree": Tool(minimum_spanning_tree, NoArgs,
                                   "Return the edges of a minimum spanning tree of G (a minimum spanning forest, "
                                   "one tree per connected component, if G is not connected)."),
+    # Added in M3. Appended so the text of the tools above stays the same.
+    "has_path": Tool(has_path, PathArgs, "Return whether there is a path from source to target, and one such path."),
+    "is_bipartite": Tool(is_bipartite, NoArgs, "Return whether G is bipartite: its two sides if it is, "
+                                               "or an odd cycle (proof that it isn't) if not."),
+    "topological_sort": Tool(topological_sort, NoArgs, "Return a topological order of a directed graph G, "
+                                                       "or a directed cycle if there is none."),
 }
 
 
