@@ -58,3 +58,9 @@ def test_report_reads_old_and_new_rows(tmp_path, monkeypatch):
     text, summaries = rep.report(["exp"], by_task=True)
     assert "| exp | fake |" in text and "node_degree" in text and "cycle_check" in text
     assert summaries["exp"]["questions"] == 2
+
+
+def test_strict_accuracy_does_not_count_rescued_answers():
+    rows = [row(graph_id=0), row(graph_id=1, rescued=1), row(graph_id=2, correct=False)]
+    s = rep.summarize(rows)
+    assert s["accuracy"] == pytest.approx(2 / 3) and s["strict"] == pytest.approx(1 / 3)

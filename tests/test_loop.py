@@ -6,7 +6,7 @@ import networkx as nx
 from harness.answers import check_answer
 from harness.loop import AgentConfig, run_agent
 from harness.prompts import FORMAT_ERROR, NUDGE
-from harness.tools.graph_tools import GRAPH_TOOLS
+from harness.tools.graph_tools import TOOLS
 from harness.trace import Trace, read_trace
 from harness.verifiers import verify_connectivity, verify_shortest_path
 
@@ -311,7 +311,7 @@ def test_only_offered_tools_are_shown():
 
 
 def test_tool_not_offered_is_refused():
-    without_has_edge = tuple(t["function"]["name"] for t in GRAPH_TOOLS if t["function"]["name"] != "has_edge")
+    without_has_edge = tuple(name for name in TOOLS if name != "has_edge")
     model = fake_model(
         tool_call("has_edge", {"u": 4, "v": 5}),  # the model calls a tool it was not given
         tool_call("submit_answer", {"answer": 2}),
@@ -497,6 +497,17 @@ def test_trace_logs_how_the_run_ended(tmp_path):
     assert [e["event"] for e in events] == ["run_start", "model_call", "nudge", "model_call", "run_end"]
     assert events[2]["kind"] == "no_tool_call"
     assert events[-1]["status"] == "cannot_answer" and events[-1]["reason"] == "no clique tool"
+
+
+def test_result_carries_steps_and_token_totals():
+    # The runner reads these from the result instead of searching the trace file.
+    model = fake_model(
+        with_stats(tool_call("get_neighbors", {"node": 4}), prompt_tokens=100, completion_tokens=20, latency_s=0.5),
+        with_stats(tool_call("submit_answer", {"answer": 2}), prompt_tokens=150, completion_tokens=10, latency_s=0.25),
+    )
+    result = run_agent(QUESTION, GRAPH, call_model=model)
+    assert (result.steps, result.prompt_tokens, result.completion_tokens) == (2, 250, 30)
+    assert result.model_latency_s == 0.75
 
 
 def test_stats_are_not_sent_to_the_model():

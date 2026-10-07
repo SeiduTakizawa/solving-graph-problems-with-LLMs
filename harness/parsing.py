@@ -3,9 +3,9 @@ import json
 import re
 
 from harness.answers import ENDING_TOOL_NAMES
-from harness.tools.graph_tools import GRAPH_TOOLS
+from harness.tools.graph_tools import TOOLS
 
-TOOL_NAMES = [t["function"]["name"] for t in GRAPH_TOOLS] + ENDING_TOOL_NAMES
+TOOL_NAMES = list(TOOLS) + ENDING_TOOL_NAMES
 
 
 def looks_like_text_tool_call(content: str | None) -> bool:

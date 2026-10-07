@@ -362,3 +362,19 @@ them in sync.
 
 **Lesson:** a schema the model reads and the validation the harness runs should come from the same definition;
 two copies drift. And check what a library's "lax" mode accepts: Pydantic's `int` happily takes `True`.
+
+---
+
+## 2026-10-07: Cleanup before the long runs
+
+- **The runner re-read the whole trace file after every question** to find that question's token counts
+  (`_run_end`). The file grows with every question, so the work grew quadratically: on a 2,600-answer run, the
+  last questions each re-read tens of MB. Now `run_agent` returns steps, tokens and model time in `RunResult`, and
+  the runner reads them from there. **Lesson:** don't read back from the log what the code that wrote it already
+  knew; the log is for later analysis, not for passing data between parts of the program.
+- **One summary instead of two.** `runner.summarize` and `eval/analysis/report.py` computed the same tables with
+  different columns (only one had strict accuracy, only the other had CIs). The runner now prints the report's
+  tables, which gained a **strict** column (accuracy without rescued text tool calls). Report numbers were checked
+  unchanged before/after; the pilot shows 100% lenient vs 79.6% strict.
+- Small: `missing_node()` helper instead of 5 copies of the same error, `partial(task.verify, graph, params)`
+  instead of a lambda with default arguments, `list(TOOLS)` instead of digging names out of the schemas.

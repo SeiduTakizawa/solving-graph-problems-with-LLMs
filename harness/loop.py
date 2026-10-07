@@ -25,13 +25,17 @@ class AgentConfig:
 
 @dataclass
 class RunResult:
-    answer: int | bool | list[int] | None
+    answer: int | bool | list | None  # a number, true/false, a node list or an edge list
     status: str  # "submitted", "cannot_answer", "max_steps" or "loop_detected"
     messages: list[dict]
     reason: str | None = None  # why it could not answer, or why the run was stopped
     rescued: int = 0  # tool calls written as text that the harness parsed and ran anyway
     rejected: int = 0  # submitted answers the verifier sent back
     evidence: dict | None = None  # extra fields sent with the answer, e.g. {"path": [...]} behind a "yes"
+    steps: int = 0  # model calls made
+    prompt_tokens: int = 0  # summed over all model calls
+    completion_tokens: int = 0
+    model_latency_s: float = 0.0  # time spent waiting for the model (tools not included)
 
 
 def parse_arguments(raw) -> tuple[dict, str | None]:
@@ -72,7 +76,9 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
     def finish(answer, status, steps, reason=None, evidence=None):
         log("run_end", answer=answer, evidence=evidence, status=status, reason=reason, steps=steps,
             rescued=rescued, rejected=rejected, **totals)
-        return RunResult(answer, status, messages, reason, rescued, rejected, evidence)
+        return RunResult(answer, status, messages, reason=reason, rescued=rescued, rejected=rejected,
+                         evidence=evidence, steps=steps, prompt_tokens=totals["prompt_tokens"],
+                         completion_tokens=totals["completion_tokens"], model_latency_s=totals["latency_s"])
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},

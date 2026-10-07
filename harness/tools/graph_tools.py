@@ -40,9 +40,17 @@ class PathArgs(NoArgs):
     target: NodeId
 
 
+def missing_node(graph: nx.Graph, *nodes: int) -> dict | None:
+    """The error for the first of `nodes` that isn't in G, or None if they all are."""
+    for node in nodes:
+        if node not in graph:
+            return {"error": f"Node {node} does not exist. Nodes are {sorted(graph.nodes)}."}
+    return None
+
+
 def get_neighbors(graph: nx.Graph, node: int) -> dict:
-    if node not in graph:
-        return {"error": f"Node {node} does not exist. Nodes are {sorted(graph.nodes)}."}
+    if error := missing_node(graph, node):
+        return error
     return {"neighbors": sorted(graph.neighbors(node))}
 
 
@@ -55,17 +63,16 @@ def degree(graph: nx.Graph, node: int) -> dict:
       - directed G:   {"degree": <in + out>, "in_degree": <...>, "out_degree": <...>}
     The model doesn't need to know whether G is directed: the tool handles both.
     """
-    if node not in graph:
-        return {"error": f"Node {node} does not exist. Nodes are {sorted(graph.nodes)}."}
+    if error := missing_node(graph, node):
+        return error
     if graph.is_directed():
         return {"degree": graph.degree(node), "in_degree": graph.in_degree(node), "out_degree": graph.out_degree(node)}
     return {"degree": graph.degree(node)}
 
 
 def has_edge(graph: nx.Graph, u: int, v: int) -> dict:
-    for node in (u, v):
-        if node not in graph:
-            return {"error": f"Node {node} does not exist. Nodes are {sorted(graph.nodes)}."}
+    if error := missing_node(graph, u, v):
+        return error
     return {"has_edge": graph.has_edge(u, v)}
 
 
@@ -83,28 +90,19 @@ def graph_info(graph: nx.Graph) -> dict:
 
 def shortest_path(graph: nx.Graph, source: int, target: int) -> dict:
     """A shortest path from source to target.
-    
+
     Return:
       - if a node doesn't exist: {"error": "Node ... does not exist. ..."}  (like get_neighbors)
       - if there is a path:      {"reachable": True, "length": <number of edges>, "path": [source, ..., target]}
       - if there is no path:     {"reachable": False}
     """
-    if source not in graph:
-        return {"error":f"Node {source} does not exist. Nodes are {sorted(graph.nodes)}."}
-    if target not in graph:
-        return {
-            "error": f"Node {target} does not exist. Nodes are {sorted(graph.nodes)}."}
+    if error := missing_node(graph, source, target):
+        return error
     try:
         path = nx.shortest_path(graph, source=source, target=target)
-        return{
-            "reachable":True,
-            "length":len(path)-1,
-            "path": path
-        }
     except nx.NetworkXNoPath:
-        return{
-            "reachable":False
-        }
+        return {"reachable": False}
+    return {"reachable": True, "length": len(path) - 1, "path": path}
 
 
 def connected_components(graph: nx.Graph) -> dict:

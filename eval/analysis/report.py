@@ -65,6 +65,7 @@ def summarize(rows: list[dict]) -> dict:
         "questions": len({question_key(r) for r in rows}),
         "runs": len({r["run"] for r in rows}),
         "accuracy": statistics.mean(r["correct"] for r in rows),
+        "strict": statistics.mean(r["correct"] and not r.get("rescued") for r in rows),
         "ci": (low, high),
         "checked": statistics.mean(was_checked(r) for r in rows),
         "no_answer": sum(r["status"] != "submitted" for r in rows),
@@ -82,12 +83,13 @@ def markdown_table(header: list[str], lines: list[list]) -> str:
 
 def table_line(label: list[str], s: dict) -> list:
     low, high = s["ci"]
-    return [*label, s["questions"], s["runs"], f"{s['accuracy']:.1%}", f"{low:.1%} – {high:.1%}",
+    return [*label, s["questions"], s["runs"], f"{s['accuracy']:.1%}", f"{low:.1%} – {high:.1%}", f"{s['strict']:.1%}",
             f"{s['checked']:.0%}", s["no_answer"], s["rejected"], f"{s['tokens']:.0f}", f"{s['time']:.1f}s"]
 
 
-COLUMNS = ["questions", "runs", "accuracy", "95% CI", "checked", "no answer", "rejected", "tokens / q", "time / q"]
+COLUMNS = ["questions", "runs", "accuracy", "95% CI", "strict", "checked", "no answer", "rejected", "tokens / q", "time / q"]
 LEGEND = ("accuracy = share of all answers (every run) that were correct; 95% CI = bootstrap over questions; "
+          "strict = accuracy without answers rescued from text tool calls; "
           "checked = answers a checker actually looked at; no answer = runs that ended without one "
           "(cannot_answer, loop, max steps, error); rejected = answers a checker sent back; "
           "tokens / q = prompt + completion tokens per answer.")
