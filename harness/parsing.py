@@ -5,7 +5,7 @@ import re
 from harness.answers import ENDING_TOOL_NAMES
 from harness.tools.graph_tools import TOOLS
 
-TOOL_NAMES = list(TOOLS) + ENDING_TOOL_NAMES
+TOOL_NAMES = list(TOOLS) + ["read_result"] + ENDING_TOOL_NAMES
 
 
 def looks_like_text_tool_call(content: str | None) -> bool:

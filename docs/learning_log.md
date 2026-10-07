@@ -408,3 +408,39 @@ evidence on the first try (in the pilot, cycle_check left the evidence out 5 tim
   pilot's tool set: `--without-tool degree --without-tool has_path --without-tool is_bipartite
   --without-tool topological_sort`. The M2 runs should fix one tool set and say which.
 - `is_bipartite` and `topological_sort` have no questions in the dataset yet (they come with the M6 generator).
+
+---
+
+## 2026-10-07: M3 step 3, result handles (tested on a 10,000-node graph)
+
+Values with more than 200 numbers are stored per run; the model sees `{"handle": "result_1", "length": 9932,
+"first_5": [...]}`. Lists of big items (components) get one handle per item. `read_result(handle, offset, limit)`
+pages through a stored value, and `submit_answer` accepts a handle. The current dataset never reaches the limit
+(max 98 numbers, checked over every tool on all 300 graphs), so earlier experiments are unaffected.
+
+**Real test:** qwen3:8b, "What is a minimum spanning tree of G?" on a random graph with 10,000 nodes, 25,000 edges
+and 68 components (the MST has 9,932 edges). Trace: `results/harness_runs/handles_big_graph_test/`.
+
+**1st try: failed.** The MST came back as a 336-character summary instead of ~110,000 characters, as planned.
+Then qwen submitted `["result_1"]` twice (rejected) and gave up: "the edges are stored under a handle, but the
+system requires the actual list of edges". **The note said "pass the handle to submit_answer", but the
+`submit_answer` schema said the answer must be an array of edges, so a plain string was impossible.** The model
+did the best the schema allowed. The schema won over the instructions.
+
+**Fix:** once a handle exists, `submit_answer`'s schema becomes "edge list *or* a handle string" (switched at the
+same moment `read_result` is offered, so normal graphs keep the old schema), `["result_1"]` is resolved too, and
+the type error mentions handles.
+
+**2nd try: worked.** 2 steps, 35 s, 1,974 + 601 tokens: `minimum_spanning_tree` → `submit_answer("result_1")`
+→ the verifier checked all 9,932 edges → submitted, correct.
+
+**Lessons:**
+- **When the schema and the instructions disagree, the model follows the schema.** Anything you tell the model
+  it may do must also be allowed by the tool's schema.
+- Handles turn a task that can't fit in a small model's context (~110k characters of edges) into a 2-step,
+  ~2,600-token task. That's the point of principle 3, and it only shows on graphs much bigger than the dataset.
+- Test with the real model early. The fake-model test passed because it sent exactly what I expected; the real
+  model sent what the schema allowed.
+
+Also added `docs/architecture.md`: how the harness is built today (data flow, modules, key designs, how to add a
+tool, task or verifier), kept up to date as the architecture changes.

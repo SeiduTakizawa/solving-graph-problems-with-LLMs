@@ -10,6 +10,7 @@ from harness.answers import CANNOT_ANSWER, check_answer, evidence_fields, make_s
 from harness.parsing import looks_like_text_tool_call, parse_text_tool_call
 from harness.prompts import FORMAT_ERROR, NUDGE, SYSTEM_PROMPT
 from harness.tools.graph_tools import GRAPH_TOOLS, run_tool
+from harness.tools.handles import HANDLE_LIMIT, READ_RESULT, HandleStore
 from harness.trace import Trace
 
 
@@ -21,6 +22,7 @@ class AgentConfig:
     max_repeats: int = 3  # stop if the model sends the same reply this many times in a row
     rescue: bool = True  # run tool calls written as text (lenient); False = only a FORMAT_ERROR (strict)
     graph_tools: tuple[str, ...] | None = None  # names of the graph tools to offer; None = all
+    handle_limit: int | None = HANDLE_LIMIT  # results with more numbers than this become handles; None = off
 
 
 @dataclass
@@ -87,10 +89,12 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
     graph_tools = [t for t in GRAPH_TOOLS
                    if config.graph_tools is None or t["function"]["name"] in config.graph_tools]
     offered = {t["function"]["name"] for t in graph_tools}
-    tools = graph_tools + [make_submit_answer(answer_type), CANNOT_ANSWER]
+    submit_tool = make_submit_answer(answer_type)
+    tools = graph_tools + [submit_tool, CANNOT_ANSWER]
     log("run_start", question=question, answer_type=answer_type, verified=verify is not None,
         **{**asdict(config), "graph_tools": sorted(offered)})
     previous, repeats = None, 0
+    store = HandleStore(config.handle_limit) if config.handle_limit else None
 
     for step in range(1, config.max_steps + 1):
         # 1. Ask the model, and remember what it said.
@@ -132,8 +136,12 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
             if args_error:  # broken JSON: tell the model instead of crashing the run
                 result = {"error": args_error}
             elif name == "submit_answer":
+                if store:  # a handle ("result_1") stands for the stored value it names
+                    args = {key: store.resolve(value) for key, value in args.items()}
                 evidence = {field: args.get(field) for field in evidence_fields(answer_type)}
                 error = check_answer(args.get("answer"), answer_type)
+                if error and store and store.values:
+                    error += ' A stored result can be submitted by its handle, e.g. "result_1".'
                 if error is None and verify is not None:
                     error = verify(args["answer"], **evidence)  # right type; is it also a valid answer?
                     if error:
@@ -146,11 +154,22 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
                 return finish(None, "cannot_answer", step, reason=args.get("reason"))
             elif name not in offered:
                 result = {"error": f"Unknown tool {name}. Available tools: {sorted(offered)}."}
+            elif name == "read_result":
+                result = store.read(args)
             else:
                 try:
                     result = run_tool(graph, name, args)
                 except Exception as e:  # a buggy tool must not kill the agent
                     result = {"error": f"Tool {name} crashed: {e}"}
+                if store and "error" not in result:
+                    result = store.compact(result)
+                    # read_result is offered from the first handle on, not before: on graphs where nothing is
+                    # ever big (the whole current dataset) the tool list stays exactly as it was.
+                    if store.values and "read_result" not in offered:
+                        tools.insert(len(graph_tools), READ_RESULT)
+                        offered.add("read_result")
+                        # ...and submit_answer starts accepting handles (its schema said "array" until now).
+                        tools[tools.index(submit_tool)] = submit_tool = make_submit_answer(answer_type, handles=True)
             log("tool_call", step=step, name=name, args=args, result=result)
             messages.append({
                 "role": "tool",

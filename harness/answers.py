@@ -50,10 +50,22 @@ ANSWER_TYPES = {
 ENDING_TOOL_NAMES = ["submit_answer", "cannot_answer"]
 
 
-def make_submit_answer(answer_type: str) -> dict:
-    """The submit_answer tool for one answer type. Ends the task; the loop handles it itself."""
+HANDLE_SCHEMA = {"type": "string", "description": "or the handle of a stored result, e.g. \"result_1\""}
+
+
+def make_submit_answer(answer_type: str, handles: bool = False) -> dict:
+    """The submit_answer tool for one answer type. Ends the task; the loop handles it itself.
+
+    handles=True (once a big result was stored): the answer, and any evidence, may also be a handle string.
+    Without it the schema would say "array" and the model couldn't send "result_1" at all.
+    """
     expected = ANSWER_TYPES[answer_type]
     evidence = expected.get("evidence", {})  # optional extra fields, e.g. the path behind a "yes"
+    answer_schema = expected["schema"]
+    if handles:
+        answer_schema = {"anyOf": [answer_schema, HANDLE_SCHEMA]}
+        evidence = {name: {"anyOf": [{k: v for k, v in schema.items() if k != "description"}, HANDLE_SCHEMA],
+                           "description": schema["description"]} for name, schema in evidence.items()}
     return {
         "type": "function",
         "function": {
@@ -61,7 +73,7 @@ def make_submit_answer(answer_type: str) -> dict:
             "description": f"Submit your final answer, which must be {expected['description']}. This ends the task.",
             "parameters": {
                 "type": "object",
-                "properties": {"answer": expected["schema"], **evidence},
+                "properties": {"answer": answer_schema, **evidence},
                 "required": ["answer"],
             },
         },
