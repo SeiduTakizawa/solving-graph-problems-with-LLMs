@@ -1,0 +1,2 @@
+{"mcpServers": {"graph": {"command": "~/Desktop/solving-graph-problems-with-LLMs/.venv/bin/python",
+  "args": ["-m", "harness.tools.mcp_server", "--graph", "~/Desktop/solving-graph-problems-with-LLMs/data/graphs/er/large/0.txt"]}}}

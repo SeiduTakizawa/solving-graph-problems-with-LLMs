@@ -474,3 +474,23 @@ server runs as a real subprocess over stdio, the way Claude Code launches it.
 **Claude Code demo:** set up with `--tools ""` (no built-in tools, so it can't just read the graph file),
 `--strict-mcp-config` (only our server), run outside the repo (no CLAUDE.md). It stopped at authentication: the
 `claude` CLI's OAuth session on the MacBook had expired. Re-run after `claude` login.
+
+### Claude Code demo (done after re-login)
+Same question as the pilot (large graph 0, shortest path 11 → 21), Claude Code headless with only our tools via MCP.
+Trace: `results/harness_runs/claude_code_mcp_demo/`.
+
+| | qwen3:8b in our harness (pilot) | Sonnet in Claude Code via MCP |
+|---|---|---|
+| answer | `[11, 21]` ✓ | `[11, 21]` ✓ |
+| calls | `shortest_path` → `submit_answer` | `shortest_path` → text answer |
+| time | 29.6 s (M4 Mac) | 3.9 s |
+| input tokens | **1,290** | **~21,500** (10,864 cache write + 10,700 cache read) |
+| output tokens | 440 (mostly thinking) | 135 |
+| cost | $0 (local) | $0.047 API-equivalent (subscription quota) |
+
+- The setup is right: Claude Code saw exactly our 12 tools and no built-in ones, and used them correctly.
+- **A general harness carries ~17× more context for the same question**: most of Claude Code's ~21.5k input tokens
+  are its own system prompt and machinery, built for coding. This is the cost side of the research question in one
+  number. (Caching makes repeated runs cheaper, but the context is still there.)
+- `--model sonnet` resolved to `claude-sonnet-5`, not 5.5: pin full model IDs in baselines.
+- Claude Code answers in text; grading at scale needs a structured answer (serve `submit_answer` over MCP, M6).
