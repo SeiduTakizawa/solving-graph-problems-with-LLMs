@@ -17,7 +17,9 @@
 #   v6: EMPTY_REPLY, its own nudge for a reply with no text and no tool call (qwen3.5 found answers and then went
 #       silent; qwen3 said "let me call get_neighbors" only in its thinking); run_python's description shows what
 #       graph_info() returns; a redefined tool function is restored with a note (sandbox/runner.py).
-PROMPT_VERSION = "v6"
+#   v7: compaction (harness/compaction.py): near the context limit, older tool results and run_python code are
+#       shortened with SHORTENED_RESULT / SHORTENED_CODE. Runs that never get near the limit see the same text as v6.
+PROMPT_VERSION = "v7"
 
 SYSTEM_PROMPT = (
     "You answer questions about a graph G. You cannot see G directly; use the tools to inspect it. "
@@ -36,6 +38,10 @@ EMPTY_REPLY = (
     "Your reply was empty: no text and no tool call. If you already know the answer, call submit_answer now. "
     "Otherwise make your next tool call, or call cannot_answer if the question cannot be answered."
 )
+
+# Compaction (harness/compaction.py): what an older tool result / older code becomes when the context gets full.
+SHORTENED_RESULT = "(shortened; call the tool again for the full result)"
+SHORTENED_CODE = "# (older code shortened to save space)"
 
 # Sent when the plain text looks like a tool call the model wrote out by hand (it was not executed).
 FORMAT_ERROR = (

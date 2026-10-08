@@ -8,6 +8,7 @@ import networkx as nx
 from harness import models
 from harness.answers import CANNOT_ANSWER, check_answer, evidence_fields, make_submit_answer
 from harness.brief import brief
+from harness.compaction import compact, size
 from harness.parsing import looks_like_text_tool_call, parse_text_tool_call
 from harness.prompts import CODE_HINT, EMPTY_REPLY, FORMAT_ERROR, NUDGE, PROMPT_VERSION, SYSTEM_PROMPT
 from harness.sandbox import run_python_tool, shown_reply
@@ -27,12 +28,13 @@ class AgentConfig:
     handle_limit: int | None = HANDLE_LIMIT  # results with more numbers than this become handles; None = off
     python: str | None = None  # run_python: None = off, "tools" (code calls our tools) or "networkx" (also G, nx)
     code_hint: bool = False  # add CODE_HINT (when to combine tools and code) to the system prompt; needs python
+    compact_at: float | None = 0.75  # shrink older messages when a prompt passes this share of the context; None = off
 
 
 @dataclass
 class RunResult:
     answer: int | bool | list | None  # a number, true/false, a node list or an edge list
-    status: str  # "submitted", "cannot_answer", "max_steps" or "loop_detected"
+    status: str  # "submitted", "cannot_answer", "max_steps", "loop_detected" or "context_full"
     messages: list[dict]
     reason: str | None = None  # why it could not answer, or why the run was stopped
     rescued: int = 0  # tool calls written as text that the harness parsed and ran anyway
@@ -42,6 +44,7 @@ class RunResult:
     prompt_tokens: int = 0  # summed over all model calls
     completion_tokens: int = 0
     model_latency_s: float = 0.0  # time spent waiting for the model (tools not included)
+    compactions: int = 0  # times the conversation was compacted to fit the context window
 
 
 def parse_arguments(raw) -> tuple[dict, str | None]:
@@ -77,14 +80,16 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
     call_model = call_model or partial(models.call_model, model=config.model)
     log = trace.log if trace else (lambda event, **data: None)
     totals = {"prompt_tokens": 0, "completion_tokens": 0, "latency_s": 0.0}
-    rescued = rejected = 0
+    rescued = rejected = compactions = 0
+    window = models.context_window(config.model)
 
     def finish(answer, status, steps, reason=None, evidence=None):
         log("run_end", answer=answer, evidence=evidence, status=status, reason=reason, steps=steps,
-            rescued=rescued, rejected=rejected, **totals)
+            rescued=rescued, rejected=rejected, compactions=compactions, **totals)
         return RunResult(answer, status, messages, reason=reason, rescued=rescued, rejected=rejected,
                          evidence=evidence, steps=steps, prompt_tokens=totals["prompt_tokens"],
-                         completion_tokens=totals["completion_tokens"], model_latency_s=totals["latency_s"])
+                         completion_tokens=totals["completion_tokens"], model_latency_s=totals["latency_s"],
+                         compactions=compactions)
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT + (" " + CODE_HINT if config.python and config.code_hint else "")},
@@ -99,7 +104,7 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
     submit_tool = make_submit_answer(answer_type)
     tools = graph_tools + [submit_tool, CANNOT_ANSWER]
     log("run_start", question=question, answer_type=answer_type, verified=verify is not None,
-        prompt_version=PROMPT_VERSION, context_window=models.context_window(config.model),
+        prompt_version=PROMPT_VERSION, context_window=window,
         **{**asdict(config), "graph_tools": sorted(offered)})
     previous, repeats = None, 0
     store = HandleStore(config.handle_limit) if config.handle_limit else None
@@ -208,6 +213,21 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
                     kind, nudge = "no_tool_call", NUDGE
                 log("nudge", step=step, kind=kind)
                 messages.append({"role": "user", "content": nudge})
+
+            # 4. Close to the context window? Shrink older messages before the next call (harness/compaction.py).
+            # prompt_tokens is the prompt just sent; the next one adds this step's reply and results, so the
+            # threshold leaves room for those plus the model's thinking.
+            prompt = stats.get("prompt_tokens") or 0
+            if window and config.compact_at and prompt > config.compact_at * window:
+                before = size(messages)
+                messages[:], shortened = compact(messages)  # in place: RunResult.messages is this same list
+                if shortened:
+                    compactions += 1
+                    log("compacted", step=step, prompt_tokens=prompt, shortened=shortened,
+                        chars_before=before, chars_after=size(messages))
+                elif prompt > models.NEAR_LIMIT * window:  # nothing left to shrink and almost full: stop loudly
+                    return finish(None, "context_full", step,
+                                  reason=f"prompt of {prompt} tokens in a {window}-token context, nothing left to shorten")
 
         return finish(None, "max_steps", config.max_steps)  # ran out of steps
     finally:

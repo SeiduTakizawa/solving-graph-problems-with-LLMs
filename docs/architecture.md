@@ -51,6 +51,7 @@ write one row to results.jsonl
 | `tools/handles.py` | Result handles: `HandleStore` (one per run), `read_result`. |
 | `tools/mcp_server.py` | The same tools over MCP, for other harnesses (Claude Code, generic agents). One process per graph, stdio. |
 | `sandbox/` | `run_python`: the `run_python` tool schema and how replies are shown (`__init__.py`), the Docker backend (`docker.py`), the code that runs inside the container (`runner.py`), the image (`Dockerfile`). |
+| `compaction.py` | `compact()`: near the context window, shortens older tool results and `run_python` code (rules, no LLM). |
 | `brief.py` | `brief()`: short versions of values repeated back to the model (first items + size). |
 | `answers.py` | Answer types (Pydantic types) → `submit_answer` schema and `check_answer`; `cannot_answer`; evidence fields. |
 | `verifiers.py` | Checks of the final answer, in plain Python. Evidence only, never re-solving (see below). |
@@ -143,6 +144,15 @@ and identical replies 3× in a row end the run. Transient model-server errors ar
 **Context window.** Ollama serves every model with a 4,096-token context unless asked, whatever the model supports;
 past it the prompt is cut and the reply stops short, with no error. `call_model` asks for 16k on Ollama models and
 logs `context_window` in `run_start`; API models keep the provider's context.
+
+**Compaction** (`compaction.py`, `AgentConfig.compact_at=0.75`, `None` = off). When a prompt passes 75% of the
+window, the loop shrinks the conversation before the next call: older tool results (> 300 characters) become
+`(shortened; call the tool again for the full result) neighbors: [0, 1, 2, ...] (99 items)`, older `run_python` code
+is cut to its start; the system prompt, the question and the last 2 rounds stay word for word; no message is deleted
+(every tool call keeps its reply); handles keep their full values. Logged as a `compacted` event; `RunResult` and
+`results.jsonl` count `compactions`. If nothing is left to shorten and the prompt is above 90%, the run ends with
+status `context_full` instead of running on with a cut prompt. Plain rules rather than an LLM summary: free and
+reproducible. Cost: the provider's prompt cache restarts once after a compaction (the prefix changed).
 
 **Code vs tools.** `run_python` is offered next to the graph tools (`--python tools`), instead of them
 (`--code-only`), and optionally with `CODE_HINT` in the system prompt (`--code-hint`: one lookup → a tool; many

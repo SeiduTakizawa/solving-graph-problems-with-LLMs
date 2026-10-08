@@ -150,7 +150,8 @@ docs/
   calls (tools only 0–4/15, with code 8–12/15); runner `--code-only` / `--code-hint`; report `--code`.
   **Ollama's default 4k context silently cut qwen3.5's replies**: `models.py` now asks for 16k (`OLLAMA_NUM_CTX`) and
   flags prompts near the limit. Only the `combine_*` runs were affected; clean rerun `combine16k_*`.
-  `PROMPT_VERSION` is now **v6** (see its changelog). Model calls retry transient errors (Ollama CUDA crashes).
+  Compaction (`harness/compaction.py`): at 75% of the window older tool results and code are shortened; nothing
+  left to shorten at 90% → status `context_full`. `PROMPT_VERSION` is now **v7** (see its changelog). Model calls retry transient errors (Ollama CUDA crashes).
 - **`docs/architecture.md` describes the code as built; update it whenever the architecture changes.** Open decisions: `mcp`
   package as a dependency; Docker vs OrbStack/Colima for the sandbox (no Docker on the MacBook yet).
 - **Next:** read `combine16k_*`, then M3 step 6 (close-out), the model pilot, and the M4 plan. Still open from M2: fixes A/B from the pilot (evidence wording, "G is undirected"

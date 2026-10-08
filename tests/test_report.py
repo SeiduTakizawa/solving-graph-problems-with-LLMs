@@ -98,3 +98,8 @@ def test_report_with_code_reads_the_traces(tmp_path, monkeypatch):
     (tmp_path / "exp" / "traces.jsonl").write_text(json.dumps(call("a", "run_python")) + "\n")
     text, _ = rep.report(["exp"], by_task=True, code=True)
     assert "## Code use" in text and "| exp | 100% | 0% | 1.0 | 0% | 0.0 | 0 |" in text
+
+
+def test_compacted_runs_are_counted():
+    rows = [row(compactions=2), row(graph_id=1), row(graph_id=2, compactions=0)]
+    assert rep.summarize(rows)["compacted"] == 1  # runs, not compactions

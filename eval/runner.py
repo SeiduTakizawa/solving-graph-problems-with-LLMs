@@ -63,6 +63,7 @@ def run(args) -> Path:
                     "reference": reference_answer(task.name, graph, params), "answer": result.answer,
                     "evidence": result.evidence, "correct": correct,
                     "status": result.status, "rescued": result.rescued, "rejected": result.rejected,
+                    "compactions": result.compactions,
                     "steps": None if crashed else result.steps,
                     "prompt_tokens": None if crashed else result.prompt_tokens,
                     "completion_tokens": None if crashed else result.completion_tokens,
