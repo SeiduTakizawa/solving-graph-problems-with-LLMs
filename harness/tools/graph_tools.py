@@ -40,11 +40,22 @@ class PathArgs(NoArgs):
     target: NodeId
 
 
+def describe_nodes(graph: nx.Graph) -> str:
+    """G's node ids in a few words: the count and the range, never the full list (10,000 ids = ~59k characters)."""
+    n = graph.number_of_nodes()
+    if n == 0:
+        return "G has no nodes."
+    low, high = min(graph.nodes), max(graph.nodes)
+    if high - low + 1 == n:
+        return f"G has {n} nodes, with ids {low} to {high}."
+    return f"G has {n} nodes, with ids between {low} and {high} (not every id in that range exists)."
+
+
 def missing_node(graph: nx.Graph, *nodes: int) -> dict | None:
     """The error for the first of `nodes` that isn't in G, or None if they all are."""
     for node in nodes:
         if node not in graph:
-            return {"error": f"Node {node} does not exist. Nodes are {sorted(graph.nodes)}."}
+            return {"error": f"Node {node} does not exist. {describe_nodes(graph)}"}
     return None
 
 

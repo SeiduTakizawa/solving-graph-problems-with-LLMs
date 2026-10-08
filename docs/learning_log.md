@@ -523,3 +523,18 @@ Sources: [Ollama qwen3.5](https://ollama.com/library/qwen3.5), [Ollama qwen3.6](
 [InsiderLLM Qwen 3.6 35B MoE locally](https://insiderllm.com/guides/best-way-run-qwen-3-6-35b-moe-locally/),
 [Kimi-Linear-48B-A3B](https://huggingface.co/moonshotai/Kimi-Linear-48B-A3B-Instruct),
 [Kimi K2 hardware](https://www.local-llm.net/models/kimi-k2/), [BFCL v4](https://benchlm.ai/benchmarks/bfcl-v4).
+
+---
+
+## 2026-10-08: Missing-node errors listed every node (caught in review)
+
+`missing_node()` (and the 5 copies before it) answered a bad node id with `Nodes are [0, 1, 2, ...]`: fine on the
+dataset's ≤50 nodes, **~59,000 characters on a 10,000-node graph for a single typo**, sent into the context and
+re-read on every later step. The 10k handle test didn't show it because the model never asked for a missing node.
+Now: `Node 123456 does not exist. G has 10000 nodes, with ids 0 to 9999.` (66 characters; for non-contiguous ids:
+"ids between X and Y (not every id in that range exists)"). Tests check it stays under 120 characters on 10k nodes.
+
+**Lesson:** result handles only cover tool *results*. Every message that can scale with the graph (errors, notes,
+previews) needs the same "never proportional to G" rule. A happy-path test on a big graph doesn't exercise the
+error paths. Note: the error text changed on the dataset too (it showed ≤50 ids before); only runs that hit this
+error are affected.

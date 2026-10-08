@@ -268,6 +268,22 @@ def test_bad_arguments_are_an_error(args):
     assert "Bad arguments" in result["error"]
 
 
+def test_missing_node_error_gives_count_and_range():
+    assert run_tool(nx.path_graph(5), "get_neighbors", {"node": 9})["error"] == (
+        "Node 9 does not exist. G has 5 nodes, with ids 0 to 4.")
+    gaps = nx.Graph([(0, 5), (5, 10)])  # ids 0, 5, 10
+    assert "between 0 and 10 (not every id" in run_tool(gaps, "degree", {"node": 3})["error"]
+
+
+def test_missing_node_error_stays_short_on_a_big_graph():
+    # It used to list every node: ~59,000 characters on 10,000 nodes, for one typo.
+    big = nx.gnm_random_graph(10_000, 25_000, seed=1)
+    for name, args in [("get_neighbors", {"node": 123_456}), ("has_edge", {"u": 0, "v": -1}),
+                       ("shortest_path", {"source": 0, "target": 10_000}), ("has_path", {"source": -5, "target": 1})]:
+        error = run_tool(big, name, args)["error"]
+        assert len(error) < 120 and "10000 nodes" in error, (name, error)
+
+
 # Argument validation (Pydantic): clear errors instead of crashes or wrong answers.
 
 def test_node_id_as_string_is_accepted():
