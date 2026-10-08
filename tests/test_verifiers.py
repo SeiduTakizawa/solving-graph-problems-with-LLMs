@@ -3,7 +3,8 @@ from pathlib import Path
 
 import networkx as nx
 
-from harness.verifiers import verify_connectivity, verify_cycle, verify_mst, verify_neighbors, verify_shortest_path
+from harness.verifiers import (verify_connectivity, verify_cycle, verify_mst, verify_neighbors, verify_path_via,
+                               verify_shortest_path)
 
 # 0-1-2-3 is the shortest way from 0 to 3 (3 steps); 0-4-5-6-3 is a longer detour (4 steps).
 GRAPH = nx.Graph([(0, 1), (1, 2), (2, 3), (0, 4), (4, 5), (5, 6), (6, 3)])
@@ -213,3 +214,31 @@ def test_repeated_neighbor_is_caught():
 def test_missing_neighbor_is_not_checked():
     # 4 is missing, but that can't be seen without listing the neighbors again.
     assert verify_neighbors(MST_GRAPH, {"node": 3}, [0, 2]) is None
+
+
+# Shortest route through a waypoint (multi-step task). Same graph: square 0-1-2-3-0, tail 3-4, separate 5-6.
+VIA = {"source": 0, "via": 2, "target": 4}  # best: 0-1-2-3-4 or 0-3-2-3-4 (4 steps); plain shortest 0-3-4 skips 2
+
+
+def test_route_via_passes():
+    assert verify_path_via(MST_GRAPH, VIA, [0, 1, 2, 3, 4]) is None
+
+
+def test_route_via_may_revisit_a_node():
+    assert verify_path_via(MST_GRAPH, VIA, [0, 3, 2, 3, 4]) is None  # out to the waypoint and back is fine
+
+
+def test_route_skipping_the_waypoint_is_caught():
+    error = verify_path_via(MST_GRAPH, VIA, [0, 3, 4])  # the plain shortest path
+    assert error is not None and "2" in error
+
+
+def test_longer_route_via_is_caught():
+    error = verify_path_via(MST_GRAPH, VIA, [0, 1, 2, 1, 0, 3, 4])
+    assert error is not None and "shortest" in error
+
+
+def test_badly_joined_route_is_caught():
+    # Joining [0, 1, 2] and [2, 3, 4] without dropping the repeated 2.
+    error = verify_path_via(MST_GRAPH, VIA, [0, 1, 2, 2, 3, 4])
+    assert error is not None and "2-2" in error

@@ -4,6 +4,7 @@ The dataset's questions contain the whole edge list; only the parameters (node i
 question the agent sees is rebuilt from the harness's template, so the graph never enters the prompt.
 """
 import json
+import random
 import re
 from pathlib import Path
 
@@ -39,11 +40,36 @@ def parse_params(task: str, question: str) -> dict:
     return dict(zip(names, map(int, re.search(pattern, question).groups())))
 
 
+def waypoint_params(graph: nx.Graph, rng: random.Random, count: int = 2) -> list[dict]:
+    """Questions for shortest_path_via: source, via and target in one component, with the waypoint off every
+    shortest source-target path, so a plain shortest_path(source, target) gives a wrong answer."""
+    found = []
+    nodes = sorted(graph.nodes)
+    for _ in range(500):
+        source, via, target = rng.sample(nodes, 3)
+        if not nx.has_path(graph, source, via) or not nx.has_path(graph, via, target):
+            continue
+        detour = nx.shortest_path_length(graph, source, via) + nx.shortest_path_length(graph, via, target)
+        if detour > nx.shortest_path_length(graph, source, target):
+            found.append({"source": source, "via": via, "target": target})
+            if len(found) == count:
+                break
+    return found
+
+
+# Tasks whose questions are generated from the graphs (fixed seed per graph), not read from the dataset.
+GENERATED = {"shortest_path_via": waypoint_params}
+
+
 def load_tasks(task: str, size: str, split: str, n: int) -> list[dict]:
     """Up to n questions of one task, spread over the graphs of the split (1st question of every graph,
     then the 2nd, ...)."""
     per_graph = []
     for graph_id in SPLITS[split]:
+        if task in GENERATED:  # the same questions every time: the seed is the task, size and graph
+            params = GENERATED[task](load_graph(size, graph_id), random.Random(f"{task}/{size}/{graph_id}"))
+            per_graph.append([(graph_id, p) for p in params])
+            continue
         questions = json.loads((QUESTIONS_DIR / size / f"{graph_id}.txt").read_text())["edgelist"].get(task, [])
         if isinstance(questions, str):
             questions = [questions]
@@ -81,6 +107,9 @@ def reference_answer(task: str, graph: nx.Graph, params: dict):
         return nx.shortest_path(graph, params["source"], params["target"])  # one of possibly several
     if task == "mst":
         return [[u, v] for u, v in nx.minimum_spanning_edges(graph, data=False)]  # one of possibly many
+    if task == "shortest_path_via":
+        first = nx.shortest_path(graph, params["source"], params["via"])
+        return first + nx.shortest_path(graph, params["via"], params["target"])[1:]
     raise ValueError(f"Unknown task {task}")
 
 
@@ -93,6 +122,8 @@ def is_correct(task: str, graph: nx.Graph, params: dict, answer) -> bool:
         return isinstance(answer, list) and verify_path(graph, params, answer)
     if task == "mst":  # any spanning forest is fine: the graphs are unweighted, so all have the same weight
         return isinstance(answer, list) and is_spanning_forest(graph, answer)
+    if task == "shortest_path_via":  # any shortest route through the waypoint
+        return isinstance(answer, list) and is_route_via(graph, params, answer)
     expected = reference_answer(task, graph, params)
     return answer == expected and type(answer) is type(expected)  # True must not count as 1
 
@@ -115,3 +146,13 @@ def is_spanning_forest(graph: nx.Graph, edges: list) -> bool:
     forest = nx.Graph(edges)
     forest.add_nodes_from(graph)
     return nx.is_forest(forest) and nx.number_connected_components(forest) == nx.number_connected_components(graph)
+
+
+def is_route_via(graph: nx.Graph, params: dict, route: list) -> bool:
+    """Grading check for shortest_path_via, written independently of the harness's verifier."""
+    s, v, t = params["source"], params["via"], params["target"]
+    if not route or route[0] != s or route[-1] != t or v not in route:
+        return False
+    if not all(graph.has_edge(a, b) for a, b in zip(route, route[1:])):
+        return False
+    return len(route) - 1 == nx.shortest_path_length(graph, s, v) + nx.shortest_path_length(graph, v, t)

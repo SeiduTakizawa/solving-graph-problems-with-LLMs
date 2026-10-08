@@ -556,3 +556,42 @@ guards all of it on a 10,000-node graph.
 
 **Rule (now in `docs/architecture.md`): nothing the model reads may grow with the graph.** Name the bad item, give
 counts and ranges, show the first few items and the size, never the whole thing.
+
+---
+
+## 2026-10-08: A multi-step task and trajectory analysis (process, not just answers)
+
+**Task `shortest_path_via`:** "What is a shortest route from node A to node B that passes through node C?" No tool
+answers it: the ideal run is `shortest_path(A, C)` + `shortest_path(C, B)` and a join (C only once). Questions are
+generated from the dev graphs with a fixed seed per graph (`eval/tasks.py`, 100 per size), and every waypoint
+forces a detour, so the shortcut `shortest_path(A, B)` is always wrong (tested). Sometimes the best route revisits
+a node (out to C and back). Verifier `verify_path_via`: real route, through C, length = d(A,C) + d(C,B).
+
+**Trajectory analysis** (`eval/analysis/trajectory.py`): each run is judged by its graph tool calls *and* its answer:
+ideal / extra calls / alternative path (different calls, correct) / right calls but wrong answer / wrong path, plus
+flags (shortcut, `has_path` used for a leg, manual exploration with `get_neighbors`).
+
+**Run:** qwen3:8b, 10 small dev questions, 1 run, on the M4 Mac (`results/harness_runs/waypoint_small_dev/`). The large
+run was stopped (≈4 min/question here; do it on the GPU machine).
+
+| path taken | runs |
+|---|---|
+| ideal | 5 |
+| extra calls | 1 |
+| alternative path | 4 |
+| wrong path / right calls but wrong answer | 0 |
+
+10/10 correct, 0 verifier rejections, 1 rescued text call (strict 90%), ~2.3 graph calls per question,
+no manual exploration. All 4 routes that revisit a node were joined correctly. In one run it made both
+`shortest_path` calls in one reply (planned the whole decomposition up front). Cost: 6,758 tokens and 239 s per
+question, 1.9k–10k output tokens, almost all thinking (one 2-call question took ~10k thinking tokens).
+
+**Findings:**
+- **"One ideal sequence" is the wrong yardstick.** My first version labeled run 2 "incomplete": it used
+  `has_path(5, 6)` → `[5, 0, 6]`, then read the way back (6 → 0 is an edge) from that result instead of calling
+  `shortest_path(6, 0)`. Correct and well reasoned. Process evaluation must judge whether each step is justified,
+  not whether it matches one expected path; hence the "alternative path" class.
+- **Overlapping tools create ambiguity.** In 4/10 runs the model used `has_path` for a leg, although its
+  description only promises "one such path", not a shortest one. It worked because the implementation returns a
+  shortest path. Either say so in the description (true) or remove the overlap.
+- Thinking, not tool calls, is the cost (again).

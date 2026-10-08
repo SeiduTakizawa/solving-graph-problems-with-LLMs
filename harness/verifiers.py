@@ -151,3 +151,29 @@ def verify_neighbors(graph: nx.Graph, params: dict, answer: list[int]) -> str | 
         if not graph.has_edge(node, other):
             return f"{other} is not a neighbor of {node}."
     return None
+
+
+def verify_path_via(graph: nx.Graph, params: dict, answer: list[int]) -> str | None:
+    """Check that `answer` is a shortest route from source to target that passes through `via`.
+
+    A route may visit a node twice (the best way to the waypoint and on can overlap). It is shortest when its
+    length equals dist(source, via) + dist(via, target).
+    """
+    source, via, target = params["source"], params["via"], params["target"]
+    route = answer
+
+    # 1-3. A real route from source to target (every step an edge).
+    error = check_path(graph, source, target, route)
+    if error:
+        return error
+
+    # 4. It must pass through the waypoint.
+    if via not in route:
+        return f"The route must pass through node {via}."
+
+    # 5. And be as short as possible.
+    length = len(route) - 1
+    best = nx.shortest_path_length(graph, source, via) + nx.shortest_path_length(graph, via, target)
+    if length > best:
+        return f"This route is valid but not the shortest: it takes {length} steps, a route with {best} exists."
+    return None

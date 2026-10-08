@@ -6,7 +6,8 @@ verifier that checks it. Ground truth and grading live in eval/tasks.py and neve
 from dataclasses import dataclass
 from typing import Callable
 
-from harness.verifiers import verify_connectivity, verify_cycle, verify_mst, verify_neighbors, verify_shortest_path
+from harness.verifiers import (verify_connectivity, verify_cycle, verify_mst, verify_neighbors, verify_path_via,
+                               verify_shortest_path)
 
 
 @dataclass(frozen=True)
@@ -39,4 +40,9 @@ TASKS = {task.name: task for task in [
          "What is a minimum spanning tree of G? If G is not connected, give a minimum spanning forest "
          "(one tree per connected component). Answer with the list of edges.",
          "edge_list", verify=verify_mst),
+    # Multi-step: no single tool answers it. Generated questions (eval/tasks.py), not from the dataset.
+    Task("shortest_path_via",
+         "What is a shortest route from node {source} to node {target} that passes through node {via}? "
+         "Answer with the list of nodes on the route, in order.",
+         "node_list", verify=verify_path_via),
 ]}

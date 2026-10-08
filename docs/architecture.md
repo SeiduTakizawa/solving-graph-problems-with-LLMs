@@ -4,7 +4,7 @@ How the graph harness works **today**. `CLAUDE.md` has the plan and the mileston
 as it is, and is updated when the architecture changes. The other files in `docs/` describe the paper's original
 prompting pipeline (`graph_reasoning/`), which the harness does not use.
 
-Last updated: 2026-10-08 (M3 steps 1–4: Pydantic schemas, 11 tools, result handles, MCP server).
+Last updated: 2026-10-08 (M3 steps 1–4; multi-step task `shortest_path_via` + trajectory analysis).
 
 ## One question, end to end
 
@@ -61,9 +61,10 @@ write one row to results.jsonl
 ### `eval/` (measurement; may import `harness/`, never the reverse)
 | file | job |
 |---|---|
-| `tasks.py` | Dataset loading (questions, graphs, dev/test split), reference answers, **grading** (written independently of the verifiers). |
+| `tasks.py` | Dataset loading (questions, graphs, dev/test split), generated questions for tasks not in the dataset (`GENERATED`, fixed seed per graph), reference answers, **grading** (written independently of the verifiers). |
 | `runner.py` | Runs the agent over dataset questions; one row per answer in `results.jsonl`, traces in `traces.jsonl`; progress with ETA. |
 | `analysis/report.py` | Tables (accuracy, 95% bootstrap CI, strict accuracy, checked share, tokens, time) and the accuracy-vs-tokens plot. |
+| `analysis/trajectory.py` | How a run got to its answer (multi-step tasks): ideal / extra calls / alternative path / right calls but wrong / wrong path, plus detour flags. |
 
 ## Key designs
 
@@ -82,7 +83,7 @@ handle exists. New tools are appended, so the text of earlier tools stays the sa
 field (evidence) that goes to the verifier. Shape errors go back to the model.
 
 **Verifiers** (`verifiers.py`, per task in `tasks.py`). Code, not a model. They check the evidence in an answer
-and never re-solve the question (that would be an oracle). Full: shortest_path, mst. Partial: connectivity and
+and never re-solve the question (that would be an oracle). Full: shortest_path, mst, shortest_path_via. Partial: connectivity and
 cycle_check (a "yes" needs a real path / cycle; a "no" is accepted unseen), connected_nodes (listed nodes must be
 real neighbors; a missing one can't be seen). None: counts, degree, edge existence.
 
