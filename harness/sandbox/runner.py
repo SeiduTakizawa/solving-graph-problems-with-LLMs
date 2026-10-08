@@ -6,7 +6,7 @@ and writes one JSON reply per line to stdout:
     {"code": "..."}  ->  {"stdout": "...", "result": <value of `result`>, "error": "..." or null}
 
 Variables persist between calls (like a notebook). The graph tools are plain functions: get_neighbors(4) or
-get_neighbors(node=4) both work and return the same dicts as the tools. Mode "tools": only those functions,
+get_neighbors(node=4) both work and return plain values, not the tools' dicts (see code_value). Mode "tools": only those functions,
 networkx can't be imported. Mode "networkx": G (the graph) and nx are available too.
 """
 import builtins
@@ -23,12 +23,52 @@ from harness.tools.graph_tools import TOOLS, run_tool
 STDOUT_LIMIT = 20_000  # characters kept per call; the host shortens further before the model sees it
 
 
+def code_value(name: str, result: dict):
+    """A tool's result as code should see it: a plain value, like networkx would give, and errors as exceptions.
+
+    Why: as JSON for the model, a tool result is a dict ({"neighbors": [2, 5]}). But in code the model writes
+    `for n in get_neighbors(4):`, which loops over the dict's *keys* and silently does the wrong thing, and an
+    {"error": ...} dict just flows on as if it were a result. That's why every forced-code run failed (C1, 0/5).
+
+    Rules:
+      - an error result raises ValueError(<the error message>), so the code stops loudly at the right line
+      - tools with one main value return just that value      get_neighbors(4) -> [2, 5],  degree(4) -> 2
+      - "maybe" tools return their evidence, or None if there is none
+                                                              shortest_path(0, 5) -> [0, 2, 4, 5]  or None
+      - tools whose result has several equal parts (graph_info, is_bipartite) keep their dict
+    """
+    # 1. Errors stop the code loudly, at the line that called the tool.
+    if "error" in result:
+        raise ValueError(result["error"])
+
+    # 2. Tools with one main value return just that value.
+    single_value_keys = {
+        "get_neighbors": "neighbors",
+        "degree": "degree",
+        "has_edge": "has_edge",
+        "connected_components": "components",
+        "minimum_spanning_tree": "edges",
+        "distances_from": "layers",
+        "neighborhood": "nodes",
+    }
+    if name in single_value_keys:
+        return result[single_value_keys[name]]
+
+    # 3. "Maybe" tools: their evidence, or None when there is none (so `if shortest_path(a, b):` works).
+    evidence_keys = {"shortest_path": "path", "has_path": "path", "has_cycle": "cycle", "topological_sort": "order"}
+    if name in evidence_keys:
+        return result.get(evidence_keys[name])
+
+    # 4. Several equal parts (graph_info, is_bipartite): the dict stays.
+    return result
+
+
 def tool_function(graph, name):
     fields = list(TOOLS[name].args.model_fields)
 
     def call(*args, **kwargs):
         kwargs.update(zip(fields, args))  # positional arguments in the order of the tool's fields
-        return run_tool(graph, name, kwargs)
+        return code_value(name, run_tool(graph, name, kwargs))
 
     call.__name__ = name
     call.__doc__ = TOOLS[name].description
@@ -67,11 +107,26 @@ def jsonable(value):
         return repr(value)
 
 
+def restore(namespace: dict, protected: dict) -> str | None:
+    """Put back any tool function (or G / nx) the code replaced, and say so.
+
+    Why: variables persist between calls, so a redefinition would stick for the rest of the question. A model wrote
+    `def get_neighbors(n): return get_neighbors(n)` (infinite recursion), and every later call crashed too.
+    """
+    replaced = sorted(name for name, value in protected.items() if namespace.get(name) is not value)
+    namespace.update(protected)
+    if not replaced:
+        return None
+    return (f"You redefined {', '.join(replaced)}; the original function was restored for your next calls. "
+            "Use the tool functions as they are and pick other names for your own helpers.")
+
+
 def main(graph_file: str, directed: bool, mode: str) -> None:
     graph = nx.read_adjlist(graph_file, nodetype=int, create_using=nx.DiGraph if directed else nx.Graph)
-    namespace = {name: tool_function(graph, name) for name in TOOLS}
+    protected = {name: tool_function(graph, name) for name in TOOLS}
     if mode == "networkx":
-        namespace.update(G=graph, nx=nx)
+        protected.update(G=graph, nx=nx)
+    namespace = dict(protected)
     namespace["__builtins__"] = safe_builtins(allow_networkx=mode == "networkx")
 
     print(json.dumps({"ready": True}), flush=True)
@@ -84,7 +139,8 @@ def main(graph_file: str, directed: bool, mode: str) -> None:
                 exec(compile(code, "<run_python>", "exec"), namespace)
         except BaseException as e:  # noqa: BLE001 - report every failure to the model, keep serving
             error = describe_error(e)
-        reply = {"stdout": out.getvalue()[:STDOUT_LIMIT], "result": jsonable(namespace.get("result")), "error": error}
+        reply = {"stdout": out.getvalue()[:STDOUT_LIMIT], "result": jsonable(namespace.get("result")), "error": error,
+                 "note": restore(namespace, protected)}
         print(json.dumps(reply), flush=True)
 
 

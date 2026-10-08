@@ -57,8 +57,24 @@ def waypoint_params(graph: nx.Graph, rng: random.Random, count: int = 2) -> list
     return found
 
 
+def busy_node_params(graph: nx.Graph, rng: random.Random, count: int = 1, with_k: bool = False) -> list[dict]:
+    """Questions about one node with at least 3 neighbors, so there is something to loop over.
+    with_k: also a hop distance, 1 on the dense large graphs (2 hops is already almost every node), else 2."""
+    busy = [n for n in sorted(graph.nodes) if graph.degree(n) >= 3]
+    params = [{"node": n} for n in rng.sample(busy, min(count, len(busy)))]
+    if with_k:
+        k = 1 if graph.number_of_nodes() > 20 else 2
+        params = [{**p, "k": k} for p in params]
+    return params
+
+
 # Tasks whose questions are generated from the graphs (fixed seed per graph), not read from the dataset.
-GENERATED = {"shortest_path_via": waypoint_params}
+GENERATED = {
+    "shortest_path_via": waypoint_params,
+    "hop_max_degree": lambda graph, rng: busy_node_params(graph, rng, with_k=True),
+    "common_neighbors_max": busy_node_params,
+    "triangle_count": busy_node_params,
+}
 
 
 def load_tasks(task: str, size: str, split: str, n: int) -> list[dict]:
@@ -110,6 +126,15 @@ def reference_answer(task: str, graph: nx.Graph, params: dict):
     if task == "shortest_path_via":
         first = nx.shortest_path(graph, params["source"], params["via"])
         return first + nx.shortest_path(graph, params["via"], params["target"])[1:]
+    if task == "hop_max_degree":  # highest degree, ties to the smallest id
+        within = nx.single_source_shortest_path_length(graph, params["node"], cutoff=params["k"])
+        return min((n for n in within if n != params["node"]), key=lambda n: (-graph.degree(n), n))
+    if task == "common_neighbors_max":
+        mine = set(graph.neighbors(params["node"]))
+        return min((n for n in graph.nodes if n != params["node"]),
+                   key=lambda n: (-len(mine & set(graph.neighbors(n))), n))
+    if task == "triangle_count":
+        return nx.triangles(graph, params["node"])
     raise ValueError(f"Unknown task {task}")
 
 

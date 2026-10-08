@@ -3,6 +3,7 @@
     uv run python -m eval.analysis.report degree_small_dev_v1
     uv run python -m eval.analysis.report with_verify no_verify --by-task
     uv run python -m eval.analysis.report with_verify no_verify --out report.md --plot pareto.png
+    uv run python -m eval.analysis.report combine_qwen35_B combine_qwen35_C --code   # how run_python was used
 
 Everything is computed from the results.jsonl files that eval/runner.py writes, so every number can be
 reproduced from the logs. The tables are Markdown, so they paste straight into notes or the thesis.
@@ -56,6 +57,57 @@ def was_checked(row: dict) -> bool:
     return not (row.get("answer_type", "").startswith("yes_no_with_") and row["answer"] is False)
 
 
+# --- Code use (from traces.jsonl): did the model write code, did the code fail, did it mix code with tools? ---
+
+ANSWER_TOOLS = {"submit_answer", "cannot_answer"}
+
+
+def load_tool_calls(name: str) -> dict[str, list[dict]]:
+    """run_id -> the tool_call and nudge events of that run, in order."""
+    by_run = defaultdict(list)
+    path = RESULTS_DIR / name / "traces.jsonl"
+    if path.exists():
+        for line in path.open(encoding="utf-8"):
+            event = json.loads(line)
+            if event["event"] in ("tool_call", "nudge"):
+                by_run[event["run_id"]].append(event)
+    return by_run
+
+
+def code_use(rows: list[dict], events: dict[str, list[dict]]) -> dict:
+    """The numbers of one code-use line. A code error is a run_python call whose reply has an "error"."""
+    code_calls = tool_calls = code_errors = with_code = mixed = empty = 0
+    for r in rows:
+        run = events.get(r.get("run_id"), [])
+        code = [e for e in run if e["event"] == "tool_call" and e["name"] == "run_python"]
+        tools = [e for e in run if e["event"] == "tool_call" and e["name"] not in ANSWER_TOOLS | {"run_python"}]
+        code_calls += len(code)
+        tool_calls += len(tools)
+        code_errors += sum(bool((e.get("result") or {}).get("error")) for e in code)
+        with_code += bool(code)
+        mixed += bool(code and tools)
+        empty += sum(e["event"] == "nudge" and e.get("kind") == "empty_reply" for e in run)
+    n = len(rows)
+    return {"code_offered": any(r.get("python") for r in rows), "with_code": with_code / n, "mixed": mixed / n,
+            "code_calls": code_calls / n, "code_errors": code_errors / code_calls if code_calls else 0.0,
+            "tool_calls": tool_calls / n, "empty_replies": empty}
+
+
+def code_line(label: list[str], c: dict) -> list:
+    if not c["code_offered"]:
+        return [*label, "not offered", "–", "–", "–", f"{c['tool_calls']:.1f}", c["empty_replies"]]
+    return [*label, f"{c['with_code']:.0%}", f"{c['mixed']:.0%}", f"{c['code_calls']:.1f}", f"{c['code_errors']:.0%}",
+            f"{c['tool_calls']:.1f}", c["empty_replies"]]
+
+
+CODE_COLUMNS = ["used code", "code + tools", "code calls / q", "code errors", "tool calls / q", "empty replies"]
+CODE_LEGEND = ("used code = questions with at least one run_python call; code + tools = questions that used both "
+               "run_python and a graph tool; code errors = share of run_python calls that ended in an error; "
+               "tool calls / q = graph tool calls (not run_python, submit_answer or cannot_answer); "
+               "empty replies = replies with no text and no tool call (counted from v6 on, when they got their "
+               "own nudge).")
+
+
 def summarize(rows: list[dict]) -> dict:
     """The numbers of one table line."""
     done = [r for r in rows if r.get("prompt_tokens") is not None]  # runs that crashed have no token counts
@@ -95,7 +147,14 @@ LEGEND = ("accuracy = share of all answers (every run) that were correct; 95% CI
           "tokens / q = prompt + completion tokens per answer.")
 
 
-def report(names: list[str], by_task: bool) -> tuple[str, dict]:
+def by_task_rows(rows: list[dict]) -> list[tuple[str, list[dict]]]:
+    tasks = defaultdict(list)
+    for r in rows:
+        tasks[r["task"]].append(r)
+    return sorted(tasks.items())
+
+
+def report(names: list[str], by_task: bool, code: bool = False) -> tuple[str, dict]:
     experiments = {name: load_rows(name) for name in names}
     overview = [table_line([name, rows[0]["model"]], summarize(rows)) for name, rows in experiments.items()]
     text = ["## Experiments", "", markdown_table(["experiment", "model", *COLUMNS], overview)]
@@ -103,13 +162,20 @@ def report(names: list[str], by_task: bool) -> tuple[str, dict]:
     if by_task:
         lines = []
         for name, rows in experiments.items():
-            tasks = defaultdict(list)
-            for r in rows:
-                tasks[r["task"]].append(r)
-            lines += [table_line([name, task], summarize(task_rows)) for task, task_rows in sorted(tasks.items())]
+            lines += [table_line([name, task], summarize(task_rows)) for task, task_rows in by_task_rows(rows)]
         text += ["", "## Per task", "", markdown_table(["experiment", "task", *COLUMNS], lines)]
 
     text += ["", LEGEND]
+
+    if code:
+        events = {name: load_tool_calls(name) for name in names}
+        lines = [code_line([name], code_use(rows, events[name])) for name, rows in experiments.items()]
+        text += ["", "## Code use", "", markdown_table(["experiment", *CODE_COLUMNS], lines)]
+        if by_task:
+            lines = [code_line([name, task], code_use(task_rows, events[name]))
+                     for name, rows in experiments.items() for task, task_rows in by_task_rows(rows)]
+            text += ["", markdown_table(["experiment", "task", *CODE_COLUMNS], lines)]
+        text += ["", CODE_LEGEND]
     return "\n".join(text), {name: summarize(rows) for name, rows in experiments.items()}
 
 
@@ -143,11 +209,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Accuracy and cost report for one or more experiments.")
     parser.add_argument("names", nargs="+", help="experiment folders in results/harness_runs/")
     parser.add_argument("--by-task", action="store_true", help="also show one line per task")
+    parser.add_argument("--code", action="store_true", help="also show how run_python was used (reads traces.jsonl)")
     parser.add_argument("--out", type=Path, help="also save the tables to this Markdown file")
     parser.add_argument("--plot", type=Path, help="save an accuracy-vs-tokens plot here (needs --extra viz)")
     args = parser.parse_args()
 
-    text, summaries = report(args.names, args.by_task)
+    text, summaries = report(args.names, args.by_task, args.code)
     print(text)
     if args.out:
         args.out.write_text(text + "\n", encoding="utf-8")

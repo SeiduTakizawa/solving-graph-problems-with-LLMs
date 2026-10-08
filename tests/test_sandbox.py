@@ -19,22 +19,42 @@ def sandbox():
         yield sb
 
 
-def test_tools_are_functions_with_the_same_results(sandbox):
-    assert sandbox.run("result = get_neighbors(4)")["result"] == {"neighbors": [2, 5]}
-    assert sandbox.run("result = degree(node=4)")["result"] == {"degree": 2}  # keyword arguments work too
-    assert sandbox.run("result = shortest_path(0, 3)")["result"]["path"] == [0, 2, 4, 5, 3]
+def test_tools_return_plain_values_in_code(sandbox):
+    # Like networkx, not like the JSON tools: see code_value in harness/sandbox/runner.py.
+    assert sandbox.run("result = get_neighbors(4)")["result"] == [2, 5]
+    assert sandbox.run("result = degree(node=4)")["result"] == 2  # keyword arguments work too
+    assert sandbox.run("result = shortest_path(0, 3)")["result"] == [0, 2, 4, 5, 3]
+    assert sandbox.run("result = shortest_path(0, 1)")["result"] is None  # different components
+
+
+def test_a_tool_error_stops_the_code(sandbox):
+    error = sandbox.run("x = 1\nn = get_neighbors(99)\nresult = n")["error"]
+    assert error.startswith("line 2: ValueError: Node 99 does not exist")
 
 
 def test_variables_persist_and_stdout_is_captured(sandbox):
-    sandbox.run("total = sum(degree(n)['degree'] for n in range(7))")
+    sandbox.run("total = sum(degree(n) for n in range(7))")
     reply = sandbox.run("print('edges:', total // 2)\nresult = total")
     assert reply["stdout"] == "edges: 5\n" and reply["result"] == 10
 
 
 def test_a_composed_answer_in_one_call(sandbox):
     # The kind of thing code is for: many tool calls and a comparison in one action.
-    code = "result = max(get_neighbors(5)['neighbors'], key=lambda n: degree(n)['degree'])"
+    code = "result = max(get_neighbors(5), key=degree)"
     assert sandbox.run(code)["result"] in (3, 4)
+
+
+def test_a_redefined_tool_is_restored(sandbox):
+    # From combine_qwen35_C: this recursion broke get_neighbors for every later call of the question.
+    reply = sandbox.run("def get_neighbors(n): return get_neighbors(n)\nresult = get_neighbors(4)")
+    assert "RecursionError" in reply["error"]
+    assert "redefined get_neighbors" in reply["note"]
+    after = sandbox.run("result = get_neighbors(4)")
+    assert after["result"] == [2, 5] and after["note"] is None
+
+
+def test_own_helpers_are_not_flagged(sandbox):
+    assert sandbox.run("def deg2(n): return 2 * degree(n)\nresult = deg2(4)")["note"] is None
 
 
 def test_errors_point_at_the_models_line(sandbox):
@@ -67,7 +87,7 @@ def test_a_timeout_restarts_the_sandbox():
         sb.run("kept = 1")
         assert "longer than 2 s" in sb.run("while True: pass")["error"]
         after = sb.run("result = degree(4)")
-        assert after["result"] == {"degree": 2} and "restarted" in after["note"]
+        assert after["result"] == 2 and "restarted" in after["note"]
         assert "NameError" in sb.run("result = kept")["error"]  # earlier variables are gone
 
 
@@ -84,7 +104,7 @@ def test_long_output_is_shortened_for_the_model():
 
 def test_run_python_in_the_loop():
     calls = iter([
-        ("run_python", {"code": "result = max(get_neighbors(5)['neighbors'], key=lambda n: degree(n)['degree'])"}),
+        ("run_python", {"code": "result = max(get_neighbors(5), key=degree)"}),
         ("submit_answer", {"answer": 4}),
     ])
 
@@ -101,7 +121,7 @@ def test_run_python_in_the_loop():
 
 def test_big_result_becomes_a_handle_in_the_loop():
     big = nx.gnm_random_graph(5_000, 12_000, seed=2)
-    calls = iter([("run_python", {"code": "result = minimum_spanning_tree()['edges']"}),
+    calls = iter([("run_python", {"code": "result = minimum_spanning_tree()"}),
                   ("cannot_answer", {"reason": "done"})])
 
     def model(messages, tools):

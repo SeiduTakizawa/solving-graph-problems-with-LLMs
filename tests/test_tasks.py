@@ -103,3 +103,36 @@ def test_bad_mst_is_wrong():
 ])
 def test_edge_list_answer_type(answer, ok):
     assert (check_answer(answer, "edge_list") is None) == ok
+
+
+# The "combine" family: answers by hand on a small graph, including the tie rules.
+
+STAR_PLUS = nx.Graph([(0, 1), (0, 2), (0, 3), (1, 2), (3, 4), (3, 5), (2, 6)])
+# degrees: 0:3, 1:2, 2:3, 3:3, 4:1, 5:1, 6:1 ; one triangle 0-1-2
+
+
+def test_hop_max_degree_ties_go_to_the_smallest_id():
+    # Within 1 edge of node 0: 1 (deg 2), 2 (deg 3), 3 (deg 3) -> 2 and 3 tie, so 2.
+    assert reference_answer("hop_max_degree", STAR_PLUS, {"node": 0, "k": 1}) == 2
+
+
+def test_hop_max_degree_never_answers_the_node_itself():
+    # Within 2 edges of node 1: 0, 2 (deg 3), 3 (deg 3), 6 -> 0 is the smallest of the tied degree-3 nodes.
+    assert reference_answer("hop_max_degree", STAR_PLUS, {"node": 1, "k": 2}) == 0
+    assert reference_answer("hop_max_degree", STAR_PLUS, {"node": 2, "k": 1}) == 0  # not 2 itself
+
+
+def test_common_neighbors_max():
+    # Neighbors of 1: {0, 2}. Node 0 shares {2}, node 2 shares {0}, node 3 shares {0}, node 6 shares {2} -> tie, 0.
+    assert reference_answer("common_neighbors_max", STAR_PLUS, {"node": 1}) == 0
+
+
+def test_triangle_count_by_hand():
+    assert reference_answer("triangle_count", STAR_PLUS, {"node": 0}) == 1
+    assert reference_answer("triangle_count", STAR_PLUS, {"node": 3}) == 0
+    assert reference_answer("triangle_count", nx.complete_graph(5), {"node": 0}) == 6  # C(4, 2)
+
+
+def test_combine_questions_read_well():
+    q = TASKS["hop_max_degree"].make_question({"node": 4, "k": 1})
+    assert "at distance at most 1 from node 4" in q and "edgelist" not in q

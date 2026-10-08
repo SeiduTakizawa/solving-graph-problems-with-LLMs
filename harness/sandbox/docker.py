@@ -125,7 +125,8 @@ class DockerSandbox:
                     "error": reason + " The sandbox restarts on the next call, so earlier variables are lost."}
         reply = json.loads(line)
         if restarted:
-            reply["note"] = "The sandbox was restarted before this call: variables from earlier calls are gone."
+            notes = ["The sandbox was restarted before this call: variables from earlier calls are gone.", reply.get("note")]
+            reply["note"] = " ".join(n for n in notes if n)
         return reply
 
     def _read_line(self, timeout: float) -> str | None:

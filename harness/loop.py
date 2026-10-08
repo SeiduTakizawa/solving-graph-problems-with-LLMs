@@ -9,7 +9,7 @@ from harness import models
 from harness.answers import CANNOT_ANSWER, check_answer, evidence_fields, make_submit_answer
 from harness.brief import brief
 from harness.parsing import looks_like_text_tool_call, parse_text_tool_call
-from harness.prompts import FORMAT_ERROR, NUDGE, PROMPT_VERSION, SYSTEM_PROMPT
+from harness.prompts import CODE_HINT, EMPTY_REPLY, FORMAT_ERROR, NUDGE, PROMPT_VERSION, SYSTEM_PROMPT
 from harness.sandbox import run_python_tool, shown_reply
 from harness.tools.graph_tools import GRAPH_TOOLS, run_tool
 from harness.tools.handles import HANDLE_LIMIT, READ_RESULT, HandleStore
@@ -26,6 +26,7 @@ class AgentConfig:
     graph_tools: tuple[str, ...] | None = None  # names of the graph tools to offer; None = all
     handle_limit: int | None = HANDLE_LIMIT  # results with more numbers than this become handles; None = off
     python: str | None = None  # run_python: None = off, "tools" (code calls our tools) or "networkx" (also G, nx)
+    code_hint: bool = False  # add CODE_HINT (when to combine tools and code) to the system prompt; needs python
 
 
 @dataclass
@@ -86,7 +87,7 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
                          completion_tokens=totals["completion_tokens"], model_latency_s=totals["latency_s"])
 
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": SYSTEM_PROMPT + (" " + CODE_HINT if config.python and config.code_hint else "")},
         {"role": "user", "content": question},
     ]
     graph_tools = [t for t in GRAPH_TOOLS
@@ -98,7 +99,8 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
     submit_tool = make_submit_answer(answer_type)
     tools = graph_tools + [submit_tool, CANNOT_ANSWER]
     log("run_start", question=question, answer_type=answer_type, verified=verify is not None,
-        prompt_version=PROMPT_VERSION, **{**asdict(config), "graph_tools": sorted(offered)})
+        prompt_version=PROMPT_VERSION, context_window=models.context_window(config.model),
+        **{**asdict(config), "graph_tools": sorted(offered)})
     previous, repeats = None, 0
     store = HandleStore(config.handle_limit) if config.handle_limit else None
     sandbox = None  # started on the first run_python call, stopped when the run ends
@@ -197,9 +199,15 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
 
             # 3. Plain-text reply: say what went wrong, so the model can fix it instead of repeating it.
             if not tool_calls:
-                format_error = looks_like_text_tool_call(reply.get("content"))
-                log("nudge", step=step, kind="format_error" if format_error else "no_tool_call")
-                messages.append({"role": "user", "content": FORMAT_ERROR if format_error else NUDGE})
+                content = reply.get("content") or ""
+                if looks_like_text_tool_call(content):
+                    kind, nudge = "format_error", FORMAT_ERROR
+                elif not content.strip():
+                    kind, nudge = "empty_reply", EMPTY_REPLY
+                else:
+                    kind, nudge = "no_tool_call", NUDGE
+                log("nudge", step=step, kind=kind)
+                messages.append({"role": "user", "content": nudge})
 
         return finish(None, "max_steps", config.max_steps)  # ran out of steps
     finally:

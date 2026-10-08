@@ -64,3 +64,37 @@ def test_strict_accuracy_does_not_count_rescued_answers():
     rows = [row(graph_id=0), row(graph_id=1, rescued=1), row(graph_id=2, correct=False)]
     s = rep.summarize(rows)
     assert s["accuracy"] == pytest.approx(2 / 3) and s["strict"] == pytest.approx(1 / 3)
+
+
+# --- Code use (traces.jsonl) ---
+
+def call(run_id, name, error=None):
+    return {"run_id": run_id, "event": "tool_call", "name": name, "result": {"error": error} if error else {"ok": 1}}
+
+
+def test_code_use_counts():
+    rows = [row(run_id="a", python="tools"), row(run_id="b", graph_id=1, python="tools")]
+    events = {
+        "a": [call("a", "get_neighbors"), call("a", "run_python", error="line 1: NameError"), call("a", "run_python"),
+              call("a", "submit_answer")],
+        "b": [{"run_id": "b", "event": "nudge", "kind": "empty_reply"}, call("b", "degree"), call("b", "submit_answer")],
+    }
+    c = rep.code_use(rows, events)
+    assert c["with_code"] == 0.5 and c["mixed"] == 0.5  # only run a wrote code, and it also used a tool
+    assert c["code_calls"] == 1.0 and c["code_errors"] == 0.5  # 2 code calls over 2 questions, 1 of them failed
+    assert c["tool_calls"] == 1.0  # get_neighbors + degree; submit_answer is not a graph tool
+    assert c["empty_replies"] == 1
+
+
+def test_code_not_offered_says_so():
+    c = rep.code_use([row(run_id="a")], {"a": [call("a", "degree")]})
+    assert rep.code_line(["exp"], c)[1] == "not offered"
+
+
+def test_report_with_code_reads_the_traces(tmp_path, monkeypatch):
+    monkeypatch.setattr(rep, "RESULTS_DIR", tmp_path)
+    (tmp_path / "exp").mkdir()
+    (tmp_path / "exp" / "results.jsonl").write_text(json.dumps(row(run_id="a", python="tools")) + "\n")
+    (tmp_path / "exp" / "traces.jsonl").write_text(json.dumps(call("a", "run_python")) + "\n")
+    text, _ = rep.report(["exp"], by_task=True, code=True)
+    assert "## Code use" in text and "| exp | 100% | 0% | 1.0 | 0% | 0.0 | 0 |" in text

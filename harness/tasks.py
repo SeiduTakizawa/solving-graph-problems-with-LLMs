@@ -45,4 +45,16 @@ TASKS = {task.name: task for task in [
          "What is the shortest route from node {source} to node {target} if it must pass through node {via}? "
          "Answer with the list of nodes on the route, in order.",
          "node_list", verify=verify_path_via),
+    # "Combine" family: a tool finds the candidates, then many checks follow (a degree per candidate, the neighbors
+    # of every node, has_edge for every pair of neighbors). Direct tools need dozens of calls; one run_python loop
+    # over the tool functions does it in one step. Numbers, so unverified by design (checking = recomputing).
+    Task("hop_max_degree",
+         "Among the nodes at distance at most {k} from node {node} (not counting node {node} itself), which one "
+         "has the highest degree? If several are tied, answer with the smallest node id.", "number"),
+    Task("common_neighbors_max",
+         "Which node, other than node {node}, has the most neighbors in common with node {node}? If several are "
+         "tied, answer with the smallest node id.", "number"),
+    Task("triangle_count",
+         "How many triangles include node {node}? A triangle is three nodes that are all connected to each other.",
+         "number"),
 ]}

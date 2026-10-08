@@ -1,0 +1,66 @@
+run 1 [1/5] hop_max_degree graph 0 {'node': 10, 'k': 1}: submitted answer=13 ✓  | 1/5, 0m 27s left, ends ~18:48
+run 1 [2/5] hop_max_degree graph 1 {'node': 21, 'k': 1}: submitted answer=39 ✓  | 2/5, 0m 43s left, ends ~18:49
+run 1 [3/5] hop_max_degree graph 2 {'node': 47, 'k': 1}: submitted answer=43 ✓  | 3/5, 0m 27s left, ends ~18:49
+run 1 [4/5] hop_max_degree graph 3 {'node': 22, 'k': 1}: submitted answer=10 ✓  | 4/5, 0m 12s left, ends ~18:49
+run 1 [5/5] hop_max_degree graph 4 {'node': 6, 'k': 1}: submitted answer=11 ✓  | 5/5, 0m 00s left, ends ~18:49
+
+## Experiments
+
+| experiment | model | questions | runs | accuracy | 95% CI | strict | checked | no answer | rejected | tokens / q | time / q |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| combine_qwen35_C | ollama_chat/qwen3.5:9b | 5 | 1 | 100.0% | 100.0% – 100.0% | 100.0% | 0% | 0 | 0 | 4691 | 12.5s |
+
+## Per task
+
+| experiment | task | questions | runs | accuracy | 95% CI | strict | checked | no answer | rejected | tokens / q | time / q |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| combine_qwen35_C | hop_max_degree | 5 | 1 | 100.0% | 100.0% – 100.0% | 100.0% | 0% | 0 | 0 | 4691 | 12.5s |
+
+accuracy = share of all answers (every run) that were correct; 95% CI = bootstrap over questions; strict = accuracy without answers rescued from text tool calls; checked = answers a checker actually looked at; no answer = runs that ended without one (cannot_answer, loop, max steps, error); rejected = answers a checker sent back; tokens / q = prompt + completion tokens per answer.
+
+how runs ended: {'submitted': 5}
+run 1 [1/5] common_neighbors_max graph 0 {'node': 19}: loop_detected answer=null ✗  | 1/5, 2m 51s left, ends ~18:52
+run 1 [2/5] common_neighbors_max graph 1 {'node': 22}: submitted answer=13 ✓  | 2/5, 2m 01s left, ends ~18:52
+run 1 [3/5] common_neighbors_max graph 2 {'node': 27}: max_steps answer=null ✗  | 3/5, 1m 15s left, ends ~18:52
+run 1 [4/5] common_neighbors_max graph 3 {'node': 27}: max_steps answer=null ✗  | 4/5, 0m 47s left, ends ~18:53
+run 1 [5/5] common_neighbors_max graph 4 {'node': 17}: max_steps answer=null ✗  | 5/5, 0m 00s left, ends ~18:53
+
+## Experiments
+
+| experiment | model | questions | runs | accuracy | 95% CI | strict | checked | no answer | rejected | tokens / q | time / q |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| combine_qwen35_C | ollama_chat/qwen3.5:9b | 10 | 1 | 60.0% | 30.0% – 90.0% | 60.0% | 0% | 4 | 0 | 13626 | 29.5s |
+
+## Per task
+
+| experiment | task | questions | runs | accuracy | 95% CI | strict | checked | no answer | rejected | tokens / q | time / q |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| combine_qwen35_C | common_neighbors_max | 5 | 1 | 20.0% | 0.0% – 60.0% | 20.0% | 0% | 4 | 0 | 22561 | 46.5s |
+| combine_qwen35_C | hop_max_degree | 5 | 1 | 100.0% | 100.0% – 100.0% | 100.0% | 0% | 0 | 0 | 4691 | 12.5s |
+
+accuracy = share of all answers (every run) that were correct; 95% CI = bootstrap over questions; strict = accuracy without answers rescued from text tool calls; checked = answers a checker actually looked at; no answer = runs that ended without one (cannot_answer, loop, max steps, error); rejected = answers a checker sent back; tokens / q = prompt + completion tokens per answer.
+
+how runs ended: {'submitted': 6, 'max_steps': 3, 'loop_detected': 1}
+run 1 [1/5] triangle_count graph 0 {'node': 22}: submitted answer=20 ✓  | 1/5, 0m 27s left, ends ~18:53
+run 1 [2/5] triangle_count graph 1 {'node': 21}: submitted answer=390 ✓  | 2/5, 0m 19s left, ends ~18:53
+run 1 [3/5] triangle_count graph 2 {'node': 25}: submitted answer=730 ✓  | 3/5, 0m 12s left, ends ~18:53
+run 1 [4/5] triangle_count graph 3 {'node': 9}: submitted answer=7 ✓  | 4/5, 0m 09s left, ends ~18:54
+run 1 [5/5] triangle_count graph 4 {'node': 10}: submitted answer=208 ✓  | 5/5, 0m 00s left, ends ~18:53
+
+## Experiments
+
+| experiment | model | questions | runs | accuracy | 95% CI | strict | checked | no answer | rejected | tokens / q | time / q |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| combine_qwen35_C | ollama_chat/qwen3.5:9b | 15 | 1 | 73.3% | 53.3% – 93.3% | 73.3% | 0% | 4 | 0 | 10126 | 22.6s |
+
+## Per task
+
+| experiment | task | questions | runs | accuracy | 95% CI | strict | checked | no answer | rejected | tokens / q | time / q |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| combine_qwen35_C | common_neighbors_max | 5 | 1 | 20.0% | 0.0% – 60.0% | 20.0% | 0% | 4 | 0 | 22561 | 46.5s |
+| combine_qwen35_C | hop_max_degree | 5 | 1 | 100.0% | 100.0% – 100.0% | 100.0% | 0% | 0 | 0 | 4691 | 12.5s |
+| combine_qwen35_C | triangle_count | 5 | 1 | 100.0% | 100.0% – 100.0% | 100.0% | 0% | 0 | 0 | 3127 | 8.7s |
+
+accuracy = share of all answers (every run) that were correct; 95% CI = bootstrap over questions; strict = accuracy without answers rescued from text tool calls; checked = answers a checker actually looked at; no answer = runs that ended without one (cannot_answer, loop, max steps, error); rejected = answers a checker sent back; tokens / q = prompt + completion tokens per answer.
+
+how runs ended: {'submitted': 11, 'max_steps': 3, 'loop_detected': 1}

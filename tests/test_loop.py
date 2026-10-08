@@ -5,7 +5,7 @@ import networkx as nx
 
 from harness.answers import check_answer
 from harness.loop import AgentConfig, run_agent
-from harness.prompts import FORMAT_ERROR, NUDGE
+from harness.prompts import EMPTY_REPLY, FORMAT_ERROR, NUDGE
 from harness.tools.graph_tools import TOOLS
 from harness.trace import Trace, read_trace
 from harness.verifiers import verify_connectivity, verify_shortest_path
@@ -540,3 +540,30 @@ def test_prompt_version_is_logged(tmp_path):
     trace = Trace(tmp_path / "run.jsonl")
     run_agent(QUESTION, GRAPH, call_model=fake_model(tool_call("submit_answer", {"answer": 2})), trace=trace)
     assert read_trace(trace.path)[0]["prompt_version"] == PROMPT_VERSION
+
+
+def test_code_hint_only_with_python_and_flag():
+    from harness.prompts import CODE_HINT
+
+    def system_prompt(config):
+        seen = {}
+
+        def model(messages, tools):
+            seen["system"] = messages[0]["content"]
+            return tool_call("submit_answer", {"answer": 2})
+
+        run_agent(QUESTION, GRAPH, call_model=model, config=config)
+        return seen["system"]
+
+    assert CODE_HINT in system_prompt(AgentConfig(python="tools", code_hint=True))
+    assert CODE_HINT not in system_prompt(AgentConfig(python="tools"))          # flag off
+    assert CODE_HINT not in system_prompt(AgentConfig(code_hint=True))          # no run_python to use
+
+
+def test_empty_reply_gets_its_own_nudge():
+    # From combine_qwen35_B: the answer was in the model's thinking, the reply itself was empty, three times.
+    model = fake_model(text_reply(""), text_reply("  "), tool_call("submit_answer", {"answer": 2}))
+    result = run_agent(QUESTION, GRAPH, call_model=model)
+    assert result.answer == 2
+    assert result.messages[3]["content"] == EMPTY_REPLY
+    assert "submit_answer now" in EMPTY_REPLY and "cannot_answer" in EMPTY_REPLY

@@ -4,6 +4,7 @@ Examples (dev graphs, 3 runs):
     uv run python -m eval.runner --task node_degree --size small --n 100
     uv run python -m eval.runner --task all --size small --n 30
     uv run python -m eval.runner --task shortest_path --no-verify     # ablation: no verifier
+    uv run python -m eval.runner --task shortest_path_via --python tools --code-only   # force code: no direct tools
 
 Writes to results/harness_runs/<name>/:
     traces.jsonl   every event of every run (from harness.trace)
@@ -30,8 +31,9 @@ def run(args) -> Path:
     task_names = sorted(TASKS) if args.task == "all" else [args.task]
     items = [item for name in task_names for item in load_tasks(name, args.size, args.split, args.n)]
     graphs = {}
-    config = AgentConfig(model=args.model, graph_tools=tuple(name for name in TOOLS if name not in args.without_tool),
-                         python=args.python)
+    # --code-only offers no graph tool directly: run_python is the only way in (its code can still call the tools).
+    graph_tools = () if args.code_only else tuple(name for name in TOOLS if name not in args.without_tool)
+    config = AgentConfig(model=args.model, graph_tools=graph_tools, python=args.python, code_hint=args.code_hint)
 
     total, done, started = args.runs * len(items), 0, time.time()
     with (out_dir / "results.jsonl").open("a", encoding="utf-8") as results:
@@ -57,7 +59,7 @@ def run(args) -> Path:
                 row = {
                     "run": run_no, "run_id": trace.run_id, "model": args.model, "size": args.size, "split": args.split,
                     **item, "answer_type": task.answer_type, "verified": verify is not None,
-                    "without_tools": args.without_tool, "python": args.python,
+                    "without_tools": args.without_tool, "python": args.python, "code_only": args.code_only, "code_hint": args.code_hint,
                     "reference": reference_answer(task.name, graph, params), "answer": result.answer,
                     "evidence": result.evidence, "correct": correct,
                     "status": result.status, "rescued": result.rescued, "rejected": result.rejected,
@@ -111,9 +113,15 @@ if __name__ == "__main__":
                         help="hide this graph tool from the agent (ablation); can be repeated")
     parser.add_argument("--python", choices=["tools", "networkx"], default=None,
                         help="offer run_python (needs Docker): code that calls our tools, or also networkx")
+    parser.add_argument("--code-hint", action="store_true",
+                        help="tell the model when to combine tools and code (harness/prompts.py CODE_HINT); needs --python")
+    parser.add_argument("--code-only", action="store_true",
+                        help="offer only run_python, no graph tools directly (needs --python); forces code")
     parser.add_argument("--name", default=None, help="results folder name (default: <task>_<size>_<split>_<time>)")
     parser.add_argument("--summary-only", action="store_true", help="only summarize an existing --name")
     args = parser.parse_args()
+    if (args.code_only or args.code_hint) and not args.python:
+        parser.error("--code-only and --code-hint need --python tools or --python networkx")
     args.name = args.name or f"{args.task}_{args.size}_{args.split}_{time.strftime('%Y%m%d_%H%M%S')}"
 
     if not args.summary_only:
