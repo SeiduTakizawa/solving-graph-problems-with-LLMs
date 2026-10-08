@@ -494,3 +494,32 @@ Trace: `results/harness_runs/claude_code_mcp_demo/`.
   number. (Caching makes repeated runs cheaper, but the context is still there.)
 - `--model sonnet` resolved to `claude-sonnet-5`, not 5.5: pin full model IDs in baselines.
 - Claude Code answers in text; grading at scale needs a structured answer (serve `submit_answer` over MCP, M6).
+
+---
+
+## 2026-10-08: Which models can run on the RTX 5070 (12 GB)?
+
+Web research (model pages and blogs, Oct 2026; sources below), to pick models before the M2 runs.
+
+- **Fits fully:** dense up to ~14B at 4-bit. `qwen3.5:9b` (Feb 2026, 6.6–7.6 GB, tools + thinking, reported as much
+  stronger than qwen3:8b at the same memory), `gemma4:12b` (Google, Jun 2026, 7.7–8 GB, native function calling),
+  `qwen3:14b` (~9 GB).
+- **Tight:** `gpt-oss:20b` (MXFP4, 14 GB download; sources disagree whether it fits 12 GB).
+- **Offload only:** MoE with ~3B active, e.g. `qwen3.6:35b-a3b` (22–24 GB; reported ~72% BFCL-V4; with llama.cpp
+  `--n-cpu-moe` reportedly ~47 tok/s on a 12 GB RTX 3060). Dense 27B+ is too slow offloaded.
+- **Newer Qwens have no small sizes:** 3.6 (Apr) and 3.8 (Aug 2026) are 27B dense / 35B MoE; 3.7 is API-only.
+  Qwen 3.5 is still the newest small Qwen.
+- **Kimi can't run locally here:** K2 / K2.6 are ~1T-parameter MoE (~384 GB at 4-bit); Kimi Linear 48B-A3B needs ~25 GB
+  at 4-bit. Use Kimi as an API baseline (OpenRouter) instead.
+
+Decision: pilot `qwen3.5:9b`, `gemma4:12b`, `gpt-oss:20b` and `qwen3:8b` (54 questions each) on the GPU machine and
+pick the cheap model from the data; likely switch the default from qwen3:8b to qwen3.5:9b before the M2 runs (only
+the pilot used qwen3:8b, so nothing comparable is lost). Plan and commands in `CLAUDE.md` → "Model candidates".
+
+Sources: [Ollama qwen3.5](https://ollama.com/library/qwen3.5), [Ollama qwen3.6](https://ollama.com/library/qwen3.6),
+[Ollama gemma4](https://ollama.com/library/gemma4), [Ollama gpt-oss](https://ollama.com/library/gpt-oss),
+[InsiderLLM Qwen guide](https://insiderllm.com/guides/qwen-models-guide/),
+[LLM Configurator gpt-oss-20b on RTX 5070](https://llmconfigurator.com/en/can-i-run/gpt-oss-20b-on-rtx-5070),
+[InsiderLLM Qwen 3.6 35B MoE locally](https://insiderllm.com/guides/best-way-run-qwen-3-6-35b-moe-locally/),
+[Kimi-Linear-48B-A3B](https://huggingface.co/moonshotai/Kimi-Linear-48B-A3B-Instruct),
+[Kimi K2 hardware](https://www.local-llm.net/models/kimi-k2/), [BFCL v4](https://benchlm.ai/benchmarks/bfcl-v4).

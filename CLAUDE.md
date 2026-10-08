@@ -63,10 +63,10 @@ Layers (bottom → top): execution (networkx etc.) → tool layer (MCP server) �
 ## Stack
 - Python 3.11+, managed with `uv`
 - LiteLLM (model layer + `completion_cost`), Pydantic (schemas, structured outputs)
-- Models for now are local via Ollama (no API keys yet): cheap = `ollama/qwen3:8b`,
-  stronger = `ollama/qwen2.5-coder:14b` (RTX 5070, 12 GB). Dollar cost is 0 locally, so log tokens and
-  latency on every call; API models (and the frontier baseline) come later.
-- FastMCP / official MCP Python SDK (tool server — the same server is given to baselines like Claude Code)
+- Models are local via Ollama for now (no API keys yet). Cheap model so far: `ollama_chat/qwen3:8b`; the
+  cheap and stronger models are being re-chosen by a pilot (see "Model candidates" below). Dollar cost is 0
+  locally, so log tokens and latency on every call; API models (and the frontier baseline) come later.
+- Official MCP Python SDK (`mcp`), not FastMCP: the tool server given to baselines like Claude Code
 - networkx (correctness reference), igraph or rustworkx (large graphs), OR-Tools (NP-hard heuristics)
 - Docker sandbox for the `run_python` escape-hatch tool
 - pytest
@@ -142,6 +142,32 @@ docs/
   closing learning-log entry.
 - Machines: GPU machine (RTX 5070) for real runs; MacBook Air M4 has Ollama + qwen3:8b but is ~4.5× slower
   (~30 s/answer), so only for quick tests. No Anthropic API access yet (see learning log, 2026-10-07).
+
+## Model candidates (next GPU-machine session, decided 2026-10-08)
+RTX 5070 = 12 GB VRAM: dense models up to ~14B fit fully on the GPU; MoE models with ~3B active parameters can run
+with expert offload to RAM. Research notes and sources: `docs/learning_log.md` (2026-10-08, model choice).
+
+| model | why | fits? |
+|---|---|---|
+| `qwen3.5:9b` | likely new default cheap model: successor to qwen3:8b, same memory (6.6–7.6 GB) | yes |
+| `gemma4:12b` | a second family (Google), native function calling, 7.7–8 GB | yes |
+| `gpt-oss:20b` | strong function calling; 14 GB download, sources disagree on fit | test: `ollama ps` must show 100% GPU |
+| `qwen3:8b` | current baseline; rerun on the GPU with today's tool set (the Mac pilot used fewer tools) | yes |
+| later: `qwen3.6:35b-a3b` | strongest local option (MoE, 3B active) for M5 escalation; needs llama.cpp `--n-cpu-moe` | offload only |
+| API: Sonnet 5.5, Kimi K2.6 (OpenRouter) | strong closed / strong open baselines in our harness (Kimi K2 can't run on 12 GB) | n/a |
+
+Pilot per model (54 questions, large dev graphs, ~5–10 min each on the 5070):
+```
+ollama pull qwen3.5:9b && ollama pull gemma4:12b && ollama pull gpt-oss:20b && ollama pull qwen3:8b
+uv run python -m eval.runner --task all --size large --n 6 --runs 1 --model ollama_chat/qwen3.5:9b --name pilot_qwen35_9b
+uv run python -m eval.runner --task all --size large --n 6 --runs 1 --model ollama_chat/gemma4:12b --name pilot_gemma4_12b
+uv run python -m eval.runner --task all --size large --n 6 --runs 1 --model ollama_chat/gpt-oss:20b --name pilot_gptoss_20b
+uv run python -m eval.runner --task all --size large --n 6 --runs 1 --model ollama_chat/qwen3:8b --name pilot_qwen3_8b_gpu
+uv run python -m eval.analysis.report pilot_qwen35_9b pilot_gemma4_12b pilot_gptoss_20b pilot_qwen3_8b_gpu --by-task --plot pilot_models.png
+```
+Decide on: strict accuracy, rescued tool calls, verifier rejections, tokens and time per question. Then fix the
+cheap model (and tool set) for the M2 runs and write it here. Note: these model names are ~Oct 2026 and the specs
+come mostly from model pages and blogs; check `ollama.com/library` for newer small models first.
 
 ## Experimental rules
 - Compare harnesses with the **same model** and, where possible, the **same tools**.
