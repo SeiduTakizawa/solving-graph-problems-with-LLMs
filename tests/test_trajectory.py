@@ -29,12 +29,17 @@ def test_right_calls_but_wrong_answer():
     assert classify("shortest_path_via", P, calls, False)["kind"] == "right calls, wrong"
 
 
-def test_a_different_route_to_a_correct_answer_is_not_a_failure():
-    # Seen with qwen3:8b: has_path for the first leg, the shortcut call, then the way back read from the first
-    # result. Correct answer, so it's an alternative path, flagged, not a failure.
-    calls = [call("has_path", source=0, target=2), call("shortest_path", source=0, target=4)]
+def test_has_path_counts_as_a_leg():
+    # has_path returns a shortest path, so using it for a leg is as good as shortest_path (still flagged).
+    calls = [call("has_path", source=0, target=2), call("shortest_path", source=2, target=4)]
     r = classify("shortest_path_via", P, calls, True)
-    assert r["kind"] == "alternative path" and r["has_path_leg"] and r["shortcut"]
+    assert r["kind"] == "ideal" and r["has_path_leg"]
+
+
+def test_a_different_route_to_a_correct_answer_is_not_a_failure():
+    # Seen with qwen3:8b: the first leg, then the way back checked with has_edge instead of a path call.
+    calls = [call("shortest_path", source=0, target=2), call("has_edge", u=2, v=4)]
+    assert classify("shortest_path_via", P, calls, True)["kind"] == "alternative path"
     assert classify("shortest_path_via", P, calls, False)["kind"] == "wrong path"
     assert classify("shortest_path_via", P, [], False)["kind"] == "wrong path"
 

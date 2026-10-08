@@ -160,10 +160,11 @@ def minimum_spanning_tree(graph: nx.Graph) -> dict:
 
 
 def has_path(graph: nx.Graph, source: int, target: int) -> dict:
-    """Whether target can be reached from source, with one path as evidence.
+    """Whether target can be reached from source, with a shortest path as evidence.
 
     Return: {"reachable": True, "path": [source, ..., target]} or {"reachable": False}
-    (in a directed graph, along the edge directions).
+    (in a directed graph, along the edge directions). The path is always a shortest one, and the description
+    says so: the model used it for shortest-route legs while it only promised "one such path".
     """
     if error := missing_node(graph, source, target):
         return error
@@ -249,7 +250,8 @@ TOOLS = {
                                   "Return the edges of a minimum spanning tree of G (a minimum spanning forest, "
                                   "one tree per connected component, if G is not connected)."),
     # Added in M3. Appended so the text of the tools above stays the same.
-    "has_path": Tool(has_path, PathArgs, "Return whether there is a path from source to target, and one such path."),
+    "has_path": Tool(has_path, PathArgs, "Return whether there is a path from source to target, "
+                                         "and a shortest such path if there is."),
     "is_bipartite": Tool(is_bipartite, NoArgs, "Return whether G is bipartite: its two sides if it is, "
                                                "or an odd cycle (proof that it isn't) if not."),
     "topological_sort": Tool(topological_sort, NoArgs, "Return a topological order of a directed graph G, "

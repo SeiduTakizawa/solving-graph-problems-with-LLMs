@@ -13,7 +13,8 @@ answer, never by matching one expected sequence alone:
 plus flags for typical detours:
 
     shortcut     called shortest_path(source, target), which ignores the waypoint
-    has_path leg used has_path for a leg; it returns "one such path", not promised to be shortest
+    has_path leg used has_path for a leg (fine since 2026-10-08: it promises a shortest path; before, it only
+                 promised "one such path", so runs before that relied on something the tool didn't guarantee)
     manual       explored by hand with get_neighbors
 
     uv run python -m eval.analysis.trajectory waypoint_small_dev
@@ -40,8 +41,9 @@ def needed_calls(task: str, params: dict) -> list[tuple[str, frozenset]] | None:
 
 def classify(task: str, params: dict, calls: list[tuple[str, dict]], correct: bool) -> dict:
     """`calls`: the run's graph tool calls in order, as (name, args); `correct`: whether the answer was right."""
-    keyed = [(name, pair(args.get("source"), args.get("target"))) if name in ("shortest_path", "has_path")
-             else (name, None) for name, args in calls]
+    # has_path returns a shortest path too, so for the legs it counts as shortest_path.
+    keyed = [("shortest_path" if name == "has_path" else name, pair(args.get("source"), args.get("target")))
+             if name in ("shortest_path", "has_path") else (name, None) for name, args in calls]
     needed = needed_calls(task, params)
     made = set(keyed)
     if all(need in made for need in needed):
@@ -55,7 +57,8 @@ def classify(task: str, params: dict, calls: list[tuple[str, dict]], correct: bo
     return {
         "kind": kind,
         "shortcut": ("shortest_path", pair(params["source"], params["target"])) in made,
-        "has_path_leg": any(("has_path", leg) in made for leg in legs),
+        "has_path_leg": any(name == "has_path" and pair(a.get("source"), a.get("target")) in legs
+                            for name, a in calls),
         "manual": any(name == "get_neighbors" for name, _ in keyed),
         "calls": len(keyed),
     }

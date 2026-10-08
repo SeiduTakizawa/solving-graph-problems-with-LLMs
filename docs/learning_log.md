@@ -595,3 +595,9 @@ question, 1.9k–10k output tokens, almost all thinking (one 2-call question too
   description only promises "one such path", not a shortest one. It worked because the implementation returns a
   shortest path. Either say so in the description (true) or remove the overlap.
 - Thinking, not tool calls, is the cost (again).
+
+**Fix (same day):** `has_path`'s description now says it returns "a shortest such path" (true: it always did). The
+trajectory analysis counts a `has_path` leg like a `shortest_path` leg (still flagged). Re-analysis of the same 10
+runs: 6 ideal, 2 extra calls, 2 alternative paths. Caveat: those runs saw the *old* description, so in them the
+model relied on a property the tool didn't promise; runs from now on don't. The tool text changed, so new runs'
+prompts differ slightly from earlier ones.
