@@ -30,7 +30,8 @@ def run(args) -> Path:
     task_names = sorted(TASKS) if args.task == "all" else [args.task]
     items = [item for name in task_names for item in load_tasks(name, args.size, args.split, args.n)]
     graphs = {}
-    config = AgentConfig(model=args.model, graph_tools=tuple(name for name in TOOLS if name not in args.without_tool))
+    config = AgentConfig(model=args.model, graph_tools=tuple(name for name in TOOLS if name not in args.without_tool),
+                         python=args.python)
 
     total, done, started = args.runs * len(items), 0, time.time()
     with (out_dir / "results.jsonl").open("a", encoding="utf-8") as results:
@@ -56,7 +57,7 @@ def run(args) -> Path:
                 row = {
                     "run": run_no, "run_id": trace.run_id, "model": args.model, "size": args.size, "split": args.split,
                     **item, "answer_type": task.answer_type, "verified": verify is not None,
-                    "without_tools": args.without_tool,
+                    "without_tools": args.without_tool, "python": args.python,
                     "reference": reference_answer(task.name, graph, params), "answer": result.answer,
                     "evidence": result.evidence, "correct": correct,
                     "status": result.status, "rescued": result.rescued, "rejected": result.rejected,
@@ -108,6 +109,8 @@ if __name__ == "__main__":
     parser.add_argument("--without-tool", action="append", default=[], metavar="TOOL",
                         choices=list(TOOLS),
                         help="hide this graph tool from the agent (ablation); can be repeated")
+    parser.add_argument("--python", choices=["tools", "networkx"], default=None,
+                        help="offer run_python (needs Docker): code that calls our tools, or also networkx")
     parser.add_argument("--name", default=None, help="results folder name (default: <task>_<size>_<split>_<time>)")
     parser.add_argument("--summary-only", action="store_true", help="only summarize an existing --name")
     args = parser.parse_args()

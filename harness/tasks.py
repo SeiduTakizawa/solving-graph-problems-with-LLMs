@@ -42,7 +42,7 @@ TASKS = {task.name: task for task in [
          "edge_list", verify=verify_mst),
     # Multi-step: no single tool answers it. Generated questions (eval/tasks.py), not from the dataset.
     Task("shortest_path_via",
-         "What is a shortest route from node {source} to node {target} that passes through node {via}? "
+         "What is the shortest route from node {source} to node {target} if it must pass through node {via}? "
          "Answer with the list of nodes on the route, in order.",
          "node_list", verify=verify_path_via),
 ]}

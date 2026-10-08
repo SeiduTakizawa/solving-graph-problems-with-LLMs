@@ -601,3 +601,41 @@ trajectory analysis counts a `has_path` leg like a `shortest_path` leg (still fl
 runs: 6 ideal, 2 extra calls, 2 alternative paths. Caveat: those runs saw the *old* description, so in them the
 model relied on a property the tool didn't promise; runs from now on don't. The tool text changed, so new runs'
 prompts differ slightly from earlier ones.
+
+---
+
+## 2026-10-08: M3 step 5, the `run_python` sandbox
+
+**Choice:** for a public release no single sandbox works everywhere, so `run_python` sits behind a swappable backend.
+Docker first (experiments run on machines we control): OrbStack on the MacBook (light, ~2 s to start), Docker Engine
+on the Linux GPU machine. A WebAssembly backend (pip-only, no Docker) is the plan for a public release. Options
+compared: Docker, WASM Python (Pyodide / WASI), OS-level sandboxing (Anthropic's sandbox-runtime: no Windows yet),
+cloud sandboxes (E2B etc.: cost, network, the graph leaves the machine).
+
+**How it works** (`harness/sandbox/`): one container per question, started on the first call (**~0.3 s**) and reused
+(**~0.3 ms per call**, variables persist). Inside, our graph tools are plain functions (`get_neighbors(4)`); mode
+`"tools"` blocks `import networkx` so code composes our tools instead of bypassing them and their evidence, mode
+`"networkx"` adds `G` and `nx` for comparison. Lockdown: no network, read-only filesystem but a small /tmp, 512 MB,
+1 CPU, 64 processes, no capabilities, non-root, 10 s per call (then killed and restarted, and the next reply says
+variables are lost). Only the graph file and `harness/` are mounted: **never `eval/` or `results/`, which hold
+reference answers**, a matter of experimental validity as much as safety. Errors come back as
+"line 2: IndexError: list index out of range" (the model's line, not our internals). Big `result`s become handles;
+long printed output is shortened. 15 tests (skipped without Docker): tools as functions, persistence, lockdown
+(no networkx, no network, read-only, nothing but `harness/` visible), timeout restart, memory limit, loop integration.
+
+Bug found by the tests: after a timeout the sandbox restarted, but the reply didn't say the variables were gone
+(the restart check looked at a container the timeout had already cleared).
+
+**First real test:** qwen3:8b on the first 3 waypoint questions with `run_python` offered
+(`results/harness_runs/waypoint_small_python/`). It **never used code**: same two path calls, join in its head.
+2/3 correct; question 2 ended in `cannot_answer`: "There is no shortest path from 5 to 0 that passes through 6 ...
+any path via 6 would be longer than the direct path". That's a legitimate reading of my wording "a shortest route
+... that passes through": *one of the shortest 5→0 routes, that happens to pass through 6* (none exists). The run
+without code had solved the same question, by luck of reading. **Fix:** the question now says "the shortest route
+from A to B if it must pass through C" (runs before this used the ambiguous wording).
+
+**Lessons:**
+- A small model doesn't reach for code on its own for 2-call tasks; `run_python` is only mentioned in its own tool
+  description. Next: the many-call task (where code should win), with and without one system-prompt line
+  recommending code.
+- Read the failures, not just the score: "qwen failed" was really "my question was ambiguous".

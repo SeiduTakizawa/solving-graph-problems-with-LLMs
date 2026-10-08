@@ -135,6 +135,8 @@ docs/
   Step 3 done: result handles (`harness/tools/handles.py`), tested on a 10,000-node graph.
   Step 4 done: MCP server (`harness/tools/mcp_server.py`, official `mcp` SDK, stdio). Claude Code demo done
   (`results/harness_runs/claude_code_mcp_demo/`): correct, ~21.5k input tokens vs 1.3k in our harness.
+  Step 5 done: `run_python` sandbox (`harness/sandbox/`, Docker; OrbStack on the MacBook, Docker Engine on the
+  GPU machine). Off by default; runner `--python tools|networkx`. Tests skip without Docker.
 - **`docs/architecture.md` describes the code as built; update it whenever the architecture changes.** Open decisions: `mcp`
   package as a dependency; Docker vs OrbStack/Colima for the sandbox (no Docker on the MacBook yet).
 - M2 still open: fixes A/B from the pilot (evidence wording, "G is undirected" prompt line), then the M2 runs on the GPU
@@ -142,6 +144,17 @@ docs/
   closing learning-log entry.
 - Machines: GPU machine (RTX 5070) for real runs; MacBook Air M4 has Ollama + qwen3:8b but is ~4.5× slower
   (~30 s/answer), so only for quick tests. No Anthropic API access yet (see learning log, 2026-10-07).
+
+## Sandbox setup (run_python)
+- MacBook: OrbStack (installed 2026-10-08). Shells opened before the install may not have `docker` on PATH; the
+  harness also finds `~/.orbstack/bin/docker`.
+- GPU machine (Linux): Docker Engine, and let your user run it without sudo:
+  ```
+  sudo apt install docker.io            # or Docker's own repo for a newer version
+  sudo usermod -aG docker $USER         # then log out and back in
+  docker run --rm hello-world           # check
+  ```
+  The sandbox image builds itself on first use (~1 min), then starts in ~0.3 s.
 
 ## Model candidates (next GPU-machine session, decided 2026-10-08)
 RTX 5070 = 12 GB VRAM: dense models up to ~14B fit fully on the GPU; MoE models with ~3B active parameters can run

@@ -4,7 +4,7 @@ How the graph harness works **today**. `CLAUDE.md` has the plan and the mileston
 as it is, and is updated when the architecture changes. The other files in `docs/` describe the paper's original
 prompting pipeline (`graph_reasoning/`), which the harness does not use.
 
-Last updated: 2026-10-08 (M3 steps 1–4; multi-step task `shortest_path_via` + trajectory analysis).
+Last updated: 2026-10-08 (M3 steps 1–5: … MCP server, `run_python` sandbox; task `shortest_path_via` + trajectory analysis).
 
 ## One question, end to end
 
@@ -50,6 +50,8 @@ write one row to results.jsonl
 | `tools/graph_tools.py` | The graph tools. `TOOLS`: name → function + Pydantic args model + description. `GRAPH_TOOLS` (the schemas the model sees) is generated from it; `run_tool` validates with it. |
 | `tools/handles.py` | Result handles: `HandleStore` (one per run), `read_result`. |
 | `tools/mcp_server.py` | The same tools over MCP, for other harnesses (Claude Code, generic agents). One process per graph, stdio. |
+| `sandbox/` | `run_python`: the `run_python` tool schema and how replies are shown (`__init__.py`), the Docker backend (`docker.py`), the code that runs inside the container (`runner.py`), the image (`Dockerfile`). |
+| `brief.py` | `brief()`: short versions of values repeated back to the model (first items + size). |
 | `answers.py` | Answer types (Pydantic types) → `submit_answer` schema and `check_answer`; `cannot_answer`; evidence fields. |
 | `verifiers.py` | Checks of the final answer, in plain Python. Evidence only, never re-solving (see below). |
 | `tasks.py` | Task registry: question template, answer type, verifier per task. No ground truth. |
@@ -106,6 +108,23 @@ graph_tools.TOOLS ──┬── our loop: run_tool() in-process
                     └── mcp_server.py ── stdio ── Claude Code / LangChain / any MCP client
 ```
 
+**`run_python` sandbox** (`harness/sandbox/`, off by default; `AgentConfig(python="tools" | "networkx")`, runner
+`--python`). The model's code runs in a Docker container, one per question, started on the first call (~0.3 s) and
+reused (~0.3 ms per call; variables persist). Inside, our graph tools are plain functions with the same arguments and
+results (`get_neighbors(4)`); in `"tools"` mode networkx can't be imported, so code composes our tools instead of
+bypassing them; `"networkx"` mode also gives `G` and `nx` (the escape hatch, for comparison). The model gets back
+`result` (big values become handles), printed output (shortened), and errors as "line N: Error: message".
+Lockdown: no network, read-only filesystem except a small /tmp, 512 MB memory, 1 CPU, 64 processes, no
+capabilities, non-root, 10 s per call (then the container is killed and restarted, and the reply says variables are
+lost). Mounted: only the graph file and `harness/` (read-only), never `eval/` or `results/`, which hold reference
+answers. The image pins the project's networkx/pydantic versions; its tag is a hash of the Dockerfile.
+Backends are swappable: a WASM backend (no Docker needed) is the plan for a public release.
+
+```
+loop ── run_python(code) ──▶ docker exec (warm container) ──▶ runner.py: exec(code) with tool functions
+     ◀── {"result" | handle, "stdout", "error"} ◀──────────────────────────────┘
+```
+
 **Nothing the model reads grows with the graph.** Tool results go through result handles; everything else that
 repeats a value back (a wrong answer, a cycle, an exception text) goes through `harness/brief.py` (`brief()`: the
 first items and the size), and errors describe G by count and id range, never by listing nodes.
@@ -130,5 +149,5 @@ identical replies 3× in a row end the run.
 
 ## Not built yet
 
-`run_python` sandbox (M3 step 5), router and skills (M4), interactive CLI (M4.5),
+Router and skills (M4), interactive CLI (M4.5),
 escalation (M5), benchmark adapters and baselines (M6).
