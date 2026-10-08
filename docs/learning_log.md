@@ -444,3 +444,33 @@ the type error mentions handles.
 
 Also added `docs/architecture.md`: how the harness is built today (data flow, modules, key designs, how to add a
 tool, task or verifier), kept up to date as the architecture changes.
+
+---
+
+## 2026-10-08: M3 step 4, MCP server
+
+**What MCP is:** an open protocol for connecting AI apps to tools. A server announces its tools (name, description,
+JSON schema); a client (Claude Code, Claude Desktop, agent frameworks) shows them to its model and forwards the
+calls. Transports: stdio (the client launches the server as a subprocess) or HTTP.
+
+**Why it's in the project:** fairness. The main comparison is our harness + a cheap model vs. a general harness +
+a strong model, and every harness must get the same tools. MCP is the standard way to hand our tools to Claude Code
+and to a generic agent (M6). Our own loop does not use it: it calls `run_tool` directly.
+
+**Choices made:**
+- Official `mcp` SDK (2.3.0), not `fastmcp`: everything the plan needs, smallest dependency, and exact control over
+  schemas. FastMCP's main convenience (schemas generated from function signatures) is the opposite of what we
+  need, which is our schemas byte-for-byte. The server is a ~100-line adapter, so switching later is cheap.
+- Low-level `Server`, with the tool list built from `GRAPH_TOOLS` and calls going through `run_tool`; the SDK's own
+  argument validation left off, so error messages are identical to our loop.
+- stdio, one process per graph (`--graph <file>`): a fresh server per question, so handles never leak.
+- The SDK version is newer than what I knew; I read the installed package's source before writing code
+  (constructor-based handlers, `mcp_types`, in-memory `Client(server)` for tests).
+
+**Tests (9):** the tool list (names, descriptions, schemas) equals `GRAPH_TOOLS`; every tool's result through MCP
+equals `run_tool` on dataset graphs; errors match (and are flagged `is_error`); handles and `read_result` work; the
+server runs as a real subprocess over stdio, the way Claude Code launches it.
+
+**Claude Code demo:** set up with `--tools ""` (no built-in tools, so it can't just read the graph file),
+`--strict-mcp-config` (only our server), run outside the repo (no CLAUDE.md). It stopped at authentication: the
+`claude` CLI's OAuth session on the MacBook had expired. Re-run after `claude` login.

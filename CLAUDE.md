@@ -133,6 +133,8 @@ docs/
   models; schemas the model sees are generated from them (byte-identical to before).
   Step 2 done: `has_path`, `is_bipartite`, `topological_sort` (each returns evidence for its answer).
   Step 3 done: result handles (`harness/tools/handles.py`), tested on a 10,000-node graph.
+  Step 4 done: MCP server (`harness/tools/mcp_server.py`, official `mcp` SDK, stdio). Claude Code demo pending:
+  the `claude` CLI's login on the MacBook had expired.
 - **`docs/architecture.md` describes the code as built; update it whenever the architecture changes.** Open decisions: `mcp`
   package as a dependency; Docker vs OrbStack/Colima for the sandbox (no Docker on the MacBook yet).
 - M2 still open: fixes A/B from the pilot (evidence wording, "G is undirected" prompt line), then the M2 runs on the GPU

@@ -4,7 +4,7 @@ How the graph harness works **today**. `CLAUDE.md` has the plan and the mileston
 as it is, and is updated when the architecture changes. The other files in `docs/` describe the paper's original
 prompting pipeline (`graph_reasoning/`), which the harness does not use.
 
-Last updated: 2026-10-07 (M3 steps 1–3: Pydantic schemas, 11 tools, result handles).
+Last updated: 2026-10-08 (M3 steps 1–4: Pydantic schemas, 11 tools, result handles, MCP server).
 
 ## One question, end to end
 
@@ -49,6 +49,7 @@ write one row to results.jsonl
 | `models.py` | `call_model`: one LiteLLM call, returns the reply plus tokens and latency under `extra`. |
 | `tools/graph_tools.py` | The graph tools. `TOOLS`: name → function + Pydantic args model + description. `GRAPH_TOOLS` (the schemas the model sees) is generated from it; `run_tool` validates with it. |
 | `tools/handles.py` | Result handles: `HandleStore` (one per run), `read_result`. |
+| `tools/mcp_server.py` | The same tools over MCP, for other harnesses (Claude Code, generic agents). One process per graph, stdio. |
 | `answers.py` | Answer types (Pydantic types) → `submit_answer` schema and `check_answer`; `cannot_answer`; evidence fields. |
 | `verifiers.py` | Checks of the final answer, in plain Python. Evidence only, never re-solving (see below). |
 | `tasks.py` | Task registry: question template, answer type, verifier per task. No ground truth. |
@@ -91,6 +92,19 @@ item. Once a handle exists, `read_result(handle, offset, limit)` is offered and 
 handle string (`"result_1"`, or `["result_1"]`, which models send when the schema says "array"). Before that, the
 tool list is unchanged, so the current dataset (max 98 numbers) never sees handles.
 
+**MCP server** (`tools/mcp_server.py`, official `mcp` SDK, low-level `Server`). Other harnesses get exactly our
+tools: the tool list is built from `GRAPH_TOOLS` (same names, descriptions and schemas), calls go through
+`run_tool` (same validation and errors, flagged `is_error`), big results become handles. The SDK's own argument
+validation is left off so errors match our loop. stdio transport: the client launches one server process per
+question with `--graph <file>`, so handles never leak between questions. Differences from our loop: `read_result`
+is listed from the start; `submit_answer` isn't served yet (decided in M6). Our loop does not use MCP: it calls
+`run_tool` directly.
+
+```
+graph_tools.TOOLS ──┬── our loop: run_tool() in-process
+                    └── mcp_server.py ── stdio ── Claude Code / LangChain / any MCP client
+```
+
 **Robustness in the loop.** Text tool calls are rescued (lenient) or answered with a format error (strict),
 broken JSON arguments and crashing tools come back as errors, the model's hidden thinking is not re-sent, and
 identical replies 3× in a row end the run.
@@ -110,5 +124,5 @@ identical replies 3× in a row end the run.
 
 ## Not built yet
 
-MCP server (M3 step 4), `run_python` sandbox (M3 step 5), router and skills (M4), interactive CLI (M4.5),
+`run_python` sandbox (M3 step 5), router and skills (M4), interactive CLI (M4.5),
 escalation (M5), benchmark adapters and baselines (M6).
