@@ -45,8 +45,8 @@ write one row to results.jsonl
 ### `harness/` (the agent; never imports `eval/` or `graph_reasoning/`)
 | file | job |
 |---|---|
-| `loop.py` | `run_agent`: the agent loop. `AgentConfig` (model, max steps, rescue, tools offered, handle limit), `RunResult`. |
-| `models.py` | `call_model`: one LiteLLM call, returns the reply plus tokens and latency under `extra`. |
+| `loop.py` | `run_agent`: the agent loop. `AgentConfig` (model, max steps, rescue, tools offered, handle limit, `python`, `code_hint`), `RunResult`. |
+| `models.py` | `call_model`: one LiteLLM call, returns the reply plus tokens and latency under `extra`. Retries transient errors (crashed or busy server, 2/8/30 s); asks Ollama for a 16k context (`OLLAMA_NUM_CTX`) and flags prompts above 90% of it (`near_context_limit`). |
 | `tools/graph_tools.py` | The graph tools. `TOOLS`: name → function + Pydantic args model + description. `GRAPH_TOOLS` (the schemas the model sees) is generated from it; `run_tool` validates with it. |
 | `tools/handles.py` | Result handles: `HandleStore` (one per run), `read_result`. |
 | `tools/mcp_server.py` | The same tools over MCP, for other harnesses (Claude Code, generic agents). One process per graph, stdio. |
@@ -56,7 +56,7 @@ write one row to results.jsonl
 | `verifiers.py` | Checks of the final answer, in plain Python. Evidence only, never re-solving (see below). |
 | `tasks.py` | Task registry: question template, answer type, verifier per task. No ground truth. |
 | `parsing.py` | Spotting and rescuing tool calls the model wrote as text. |
-| `prompts.py` | Every piece of text the harness says to the model, and `PROMPT_VERSION` (logged in every `run_start`; bump it, with a changelog line, whenever model-facing text changes). |
+| `prompts.py` | Every piece of text the harness says to the model (system prompt, nudges, `CODE_HINT`), and `PROMPT_VERSION` (logged in every `run_start`; bump it, with a changelog line, whenever model-facing text changes). |
 | `trace.py` | Append-only JSONL trace, one line per event. |
 | `ask.py` | One question about one graph from the command line. |
 
@@ -65,7 +65,7 @@ write one row to results.jsonl
 |---|---|
 | `tasks.py` | Dataset loading (questions, graphs, dev/test split), generated questions for tasks not in the dataset (`GENERATED`, fixed seed per graph), reference answers, **grading** (written independently of the verifiers). |
 | `runner.py` | Runs the agent over dataset questions; one row per answer in `results.jsonl`, traces in `traces.jsonl`; progress with ETA. |
-| `analysis/report.py` | Tables (accuracy, 95% bootstrap CI, strict accuracy, checked share, tokens, time) and the accuracy-vs-tokens plot. |
+| `analysis/report.py` | Tables (accuracy, 95% bootstrap CI, strict accuracy, checked share, tokens, time) and the accuracy-vs-tokens plot. `--code`: how `run_python` was used (questions with code, code + tools, code errors, tool calls, empty replies), read from `traces.jsonl`. |
 | `analysis/trajectory.py` | How a run got to its answer (multi-step tasks): ideal / extra calls / alternative path / right calls but wrong / wrong path, plus detour flags. |
 
 ## Key designs
@@ -112,8 +112,11 @@ graph_tools.TOOLS ──┬── our loop: run_tool() in-process
 
 **`run_python` sandbox** (`harness/sandbox/`, off by default; `AgentConfig(python="tools" | "networkx")`, runner
 `--python`). The model's code runs in a Docker container, one per question, started on the first call (~0.3 s) and
-reused (~0.3 ms per call; variables persist). Inside, our graph tools are plain functions with the same arguments and
-results (`get_neighbors(4)`); in `"tools"` mode networkx can't be imported, so code composes our tools instead of
+reused (~0.3 ms per call; variables persist). Inside, our graph tools are plain functions with the same arguments,
+returning **plain values** like networkx (`get_neighbors(4) -> [2, 5]`, `shortest_path(a, b) -> path or None`;
+`graph_info()` and `is_bipartite()` keep their dicts) and raising `ValueError` on a tool error (`code_value` in
+`runner.py`): with the JSON dicts, `for n in get_neighbors(4)` looped over keys and errors flowed on silently. A tool
+function the code redefines is put back after the call, with a note; in `"tools"` mode networkx can't be imported, so code composes our tools instead of
 bypassing them; `"networkx"` mode also gives `G` and `nx` (the escape hatch, for comparison). The model gets back
 `result` (big values become handles), printed output (shortened), and errors as "line N: Error: message".
 Lockdown: no network, read-only filesystem except a small /tmp, 512 MB memory, 1 CPU, 64 processes, no
@@ -133,8 +136,18 @@ first items and the size), and errors describe G by count and id range, never by
 `tests/test_message_size.py` checks all of these on a 10,000-node graph.
 
 **Robustness in the loop.** Text tool calls are rescued (lenient) or answered with a format error (strict),
-broken JSON arguments and crashing tools come back as errors, the model's hidden thinking is not re-sent, and
-identical replies 3× in a row end the run.
+broken JSON arguments and crashing tools come back as errors, the model's hidden thinking is not re-sent, a reply
+with no text and no tool call gets its own nudge (`EMPTY_REPLY`: "if you know the answer, call submit_answer now"),
+and identical replies 3× in a row end the run. Transient model-server errors are retried in `models.py`.
+
+**Context window.** Ollama serves every model with a 4,096-token context unless asked, whatever the model supports;
+past it the prompt is cut and the reply stops short, with no error. `call_model` asks for 16k on Ollama models and
+logs `context_window` in `run_start`; API models keep the provider's context.
+
+**Code vs tools.** `run_python` is offered next to the graph tools (`--python tools`), instead of them
+(`--code-only`), and optionally with `CODE_HINT` in the system prompt (`--code-hint`: one lookup → a tool; many
+lookups → one loop in code). The combine task family (`hop_max_degree`, `common_neighbors_max`, `triangle_count`)
+needs many lookups plus a comparison, so it is where code should help.
 
 **Logging.** Every run writes `run_start`, `model_call` (content, tool calls, thinking, tokens, latency),
 `tool_call` (arguments, result as the model saw it), `rescued_tool_call`, `verifier_rejected`, `nudge` and

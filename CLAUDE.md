@@ -133,8 +133,8 @@ docs/
 - `distances_from` and `neighborhood` (building blocks for multi-step questions): on "farthest node" / "nodes
   within 2 hops" the model went from 1/4 to 4/4, one tool call each. Claude Code + Sonnet vs our harness on large
   graphs: 9/9 both, ~28× fewer input tokens for ours (`claude_code_vs_harness_large`).
-- `PROMPT_VERSION` (`harness/prompts.py`, logged in every `run_start`) is **v3**; its changelog says what v1/v2/v3
-  mean. The GPU machine and the MacBook diverged on 2026-10-07/08 and were merged on 2026-10-08; the GPU side's
+- `PROMPT_VERSION` (`harness/prompts.py`, logged in every `run_start`); its changelog says what each version
+  means. The GPU machine and the MacBook diverged on 2026-10-07/08 and were merged on 2026-10-08; the GPU side's
   original commits are on branch `backup-gpu-2026-10-07`.
 - **M3 started** (plan approved 2026-10-07: 1 Pydantic schemas, 2 fuller tool set, 3 result handles,
   4 MCP server, 5 `run_python` sandbox, 6 close-out). Step 1 done: tool arguments and answers are Pydantic
@@ -145,9 +145,15 @@ docs/
   (`results/harness_runs/claude_code_mcp_demo/`): correct, ~21.5k input tokens vs 1.3k in our harness.
   Step 5 done: `run_python` sandbox (`harness/sandbox/`, Docker; OrbStack on the MacBook, Docker Engine on the
   GPU machine). Off by default; runner `--python tools|networkx`. Tests skip without Docker.
+  Code vs tools (2026-10-08, learning log): in code, tools return plain values and errors raise (`code_value`); a
+  "combine" task family (`hop_max_degree`, `common_neighbors_max`, `triangle_count`) where code beats tool-by-tool
+  calls (tools only 0–4/15, with code 8–12/15); runner `--code-only` / `--code-hint`; report `--code`.
+  **Ollama's default 4k context silently cut qwen3.5's replies**: `models.py` now asks for 16k (`OLLAMA_NUM_CTX`) and
+  flags prompts near the limit. Only the `combine_*` runs were affected; clean rerun `combine16k_*`.
+  `PROMPT_VERSION` is now **v6** (see its changelog). Model calls retry transient errors (Ollama CUDA crashes).
 - **`docs/architecture.md` describes the code as built; update it whenever the architecture changes.** Open decisions: `mcp`
   package as a dependency; Docker vs OrbStack/Colima for the sandbox (no Docker on the MacBook yet).
-- **Next:** M3 step 6 (close-out). Still open from M2: fixes A/B from the pilot (evidence wording, "G is undirected"
+- **Next:** read `combine16k_*`, then M3 step 6 (close-out), the model pilot, and the M4 plan. Still open from M2: fixes A/B from the pilot (evidence wording, "G is undirected"
   prompt line); a run on small graphs was skipped (large only).
 - Ideas noted: questions for the multi-step family (farthest node, k-hop counts) from the M6 generator; Brig
   (brig.sh, local microVM sandbox) as a candidate for sandboxing the Claude Code / Codex baselines in M6.

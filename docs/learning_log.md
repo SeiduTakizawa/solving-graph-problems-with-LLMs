@@ -736,3 +736,51 @@ from A to B if it must pass through C" (runs before this used the ambiguous word
   description. Next: the many-call task (where code should win), with and without one system-prompt line
   recommending code.
 - Read the failures, not just the score: "qwen failed" was really "my question was ambiguous".
+
+## 2026-10-08: Code vs tools, the combine tasks, and a silent 4k context
+
+**Question:** when does `run_python` beat calling graph tools one by one, and can a cheap model tell?
+
+**Step 1, `shortest_path_via` (qwen3:8b, 5 large questions; `code_A/B/C1/C2`).** Tools: 4/5. Tools + code: 5/5 but
+**0 uses of code** (a two-call task doesn't need it). Forced code with our tools as functions (C1): **0/5**. Forced
+code with networkx (C2): 5/5 with the fewest tokens. C1 failed because inside code our tools still returned their JSON
+dicts: `for n in get_neighbors(4)` looped over the key `"neighbors"`, and `{"error": ...}` flowed on as if it were a
+result. **Fix (`code_value`):** in code, tools return plain values like networkx and errors raise `ValueError`.
+Lesson: *an API the model already knows (networkx) beats a better one it has to learn; so make ours look familiar.*
+
+**Step 2, the combine family** (`hop_max_degree`, `common_neighbors_max`, `triangle_count`): many lookups plus a
+comparison, which is exactly where a loop in code should win. 2 models × 4 setups (A tools, B tools + code,
+H + `CODE_HINT`, C code only), 15 questions each, 1 run (`combine_*`):
+- Tools only failed: qwen3:8b 0/15, qwen3.5:9b 4/15 (`degree` called ~20 times per question, then max steps).
+- With code: 8–12/15, about half the time and fewer tokens. qwen3.5 really *combined*: a tool call for the
+  candidates, then code over them (15/15 questions in B). qwen3 mostly went straight to code.
+- `CODE_HINT` helped qwen3.5 a little and hurt qwen3 (it guessed `graph_info()["num_nodes"]`, 10 `KeyError`s).
+- qwen3.5 never submitted a wrong answer; its misses were runs that went **silent**: it found the answer
+  ("the answer is 3"), then sent empty replies until loop detection ended the run.
+
+**Step 3, reading the silent runs.** v6 fixes first (empty-reply nudge, `graph_info()` shown in the `run_python`
+description, a redefined tool function restored: qwen3.5 wrote `def get_neighbors(n): return get_neighbors(n)` and
+broke every later call). The rerun still went silent, and the nudge didn't help. The thinking stopped mid-sentence
+("The output shows that"), and once the model had lost the question. Prompt sizes gave it away: **no call ever went
+past 4,088 tokens**. Ollama serves every model with a **4,096-token context** unless asked, even though qwen3.5
+supports 262k; a prompt near the edge leaves no room for thinking, and nothing raises an error. **Fix:**
+`call_model` asks Ollama for 16k (`num_ctx`), logs `context_window` in `run_start`, and flags prompts above 90% of it.
+Only the combine runs hit the limit (all earlier runs stayed under ~1.7k tokens), so M2 and the Claude Code
+comparison stand. Clean rerun: `combine16k_*`.
+
+**Lessons:**
+- Code beats tool-by-tool calls on aggregation tasks, and how much depends on the model. Tools still matter for
+  evidence (a path or cycle a checker can verify; a number printed by code can't be checked).
+- One hint for every task is too blunt: it helped one model and hurt the other. That's the case for per-family
+  skills (M4).
+- **Check the serving settings before blaming the model.** A silent truncation looked exactly like model behaviour.
+  For the thesis: report the context size of every local run (now in the trace).
+
+**KV cache, briefly** (why Ollama defaults to 4k). To write each new token, the model attends to every earlier token.
+Instead of recomputing the earlier tokens' keys and values every time, it keeps them in GPU memory: the KV cache.
+Its size grows linearly with the context: 2 (K and V) × layers × KV heads × head size × bytes × tokens. For qwen3:8b
+(36 layers, 8 KV heads of 128, fp16) that's ~144 KB per token: 4k ≈ 0.6 GB, 16k ≈ 2.3 GB, 128k ≈ 18 GB (more than
+the whole GPU). The cache is reserved up front, so Ollama picks a small default that fits anywhere. qwen3.5 has full
+attention in only 8 of its 32 layers (every 4th; the rest are linear-attention layers with a fixed-size state), with
+4 KV heads of 256: ~32 KB per token, so 16k ≈ 0.5 GB (the whole loaded model: 5.8 GB, measured). Numbers from
+`ollama show` metadata (`block_count`, `head_count_kv`, `key_length`, `full_attention_interval`).
