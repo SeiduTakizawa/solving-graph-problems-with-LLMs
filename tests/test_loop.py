@@ -532,3 +532,11 @@ def test_configured_model_is_used_and_logged(monkeypatch, tmp_path):
 
     assert used == ["openai/some-cheap-model"]
     assert read_trace(trace.path)[0]["model"] == "openai/some-cheap-model"
+
+
+def test_prompt_version_is_logged(tmp_path):
+    from harness.prompts import PROMPT_VERSION
+
+    trace = Trace(tmp_path / "run.jsonl")
+    run_agent(QUESTION, GRAPH, call_model=fake_model(tool_call("submit_answer", {"answer": 2})), trace=trace)
+    assert read_trace(trace.path)[0]["prompt_version"] == PROMPT_VERSION

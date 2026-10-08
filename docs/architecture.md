@@ -56,7 +56,7 @@ write one row to results.jsonl
 | `verifiers.py` | Checks of the final answer, in plain Python. Evidence only, never re-solving (see below). |
 | `tasks.py` | Task registry: question template, answer type, verifier per task. No ground truth. |
 | `parsing.py` | Spotting and rescuing tool calls the model wrote as text. |
-| `prompts.py` | Every piece of text the harness says to the model. |
+| `prompts.py` | Every piece of text the harness says to the model, and `PROMPT_VERSION` (logged in every `run_start`; bump it, with a changelog line, whenever model-facing text changes). |
 | `trace.py` | Append-only JSONL trace, one line per event. |
 | `ask.py` | One question about one graph from the command line. |
 
@@ -77,8 +77,10 @@ unknown arguments are errors). Tools return **evidence** with their answer where
 2-coloring or an odd cycle, a topological order), so checkers can verify answers later.
 
 Current tools: `get_neighbors`, `degree`, `has_edge`, `graph_info`, `shortest_path`, `connected_components`,
-`has_cycle`, `minimum_spanning_tree`, `has_path`, `is_bipartite`, `topological_sort`, plus `read_result` once a
-handle exists. New tools are appended, so the text of earlier tools stays the same.
+`has_cycle`, `minimum_spanning_tree`, `has_path`, `is_bipartite`, `topological_sort`, `distances_from` (nodes in
+layers by distance) and `neighborhood` (nodes within k hops), plus `read_result` once a handle exists. The last two
+are building blocks for multi-step questions (farthest node, k-hop counts): one call instead of dozens. New tools are
+appended, so the text of earlier tools stays the same.
 
 **Answers** (`answers.py`). `submit_answer` is built per answer type: `number`, `yes_no`, `node_list`,
 `edge_list`, and `yes_no_with_path` / `yes_no_with_cycle`, where a "yes" carries the path or cycle as an extra

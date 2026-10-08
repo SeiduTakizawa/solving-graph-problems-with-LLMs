@@ -9,7 +9,7 @@ from harness import models
 from harness.answers import CANNOT_ANSWER, check_answer, evidence_fields, make_submit_answer
 from harness.brief import brief
 from harness.parsing import looks_like_text_tool_call, parse_text_tool_call
-from harness.prompts import FORMAT_ERROR, NUDGE, SYSTEM_PROMPT
+from harness.prompts import FORMAT_ERROR, NUDGE, PROMPT_VERSION, SYSTEM_PROMPT
 from harness.sandbox import run_python_tool, shown_reply
 from harness.tools.graph_tools import GRAPH_TOOLS, run_tool
 from harness.tools.handles import HANDLE_LIMIT, READ_RESULT, HandleStore
@@ -98,7 +98,7 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
     submit_tool = make_submit_answer(answer_type)
     tools = graph_tools + [submit_tool, CANNOT_ANSWER]
     log("run_start", question=question, answer_type=answer_type, verified=verify is not None,
-        **{**asdict(config), "graph_tools": sorted(offered)})
+        prompt_version=PROMPT_VERSION, **{**asdict(config), "graph_tools": sorted(offered)})
     previous, repeats = None, 0
     store = HandleStore(config.handle_limit) if config.handle_limit else None
     sandbox = None  # started on the first run_python call, stopped when the run ends

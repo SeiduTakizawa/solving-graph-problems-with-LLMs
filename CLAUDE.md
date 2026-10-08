@@ -122,12 +122,20 @@ docs/
 - **M7** Experiments: size scaling, Pareto fronts, component ablations, repeated runs with confidence intervals.
 
 ## Current status (update when it changes)
-- M0, M1 done. **M2 in progress:** verifiers for shortest_path, mst (full), connectivity / cycle_check (a "yes"
+- M0, M1, **M2 done** (2026-10-07). Checkers for shortest_path, mst (full), connectivity / cycle_check (a "yes"
   carries the path / cycle as evidence), connected_nodes (partial); counts, degree, edge existence and any "no"
-  are unverified by design. Report script `eval/analysis/report.py` done.
-- Pilot on large graphs done (`results/harness_runs/m2_pilot_large_verify/`, findings in `docs/learning_log.md`).
+  are unverified by design. Report script `eval/analysis/report.py`.
+  M2 closing run on the GPU (large, 9 tasks × 15 × 2 runs, checkers on/off, `m2_large_verify` / `m2_large_noverify`):
+  100% lenient, 88–90% strict; all checker rejections were missing cycle evidence; rescued text tool calls
+  (10–12%, ~half of connected_nodes) are the main error source. Fixes A/B were not applied first and are still open.
 - `degree` tool added (node_degree ~8× faster, same accuracy); it's in the default tool set now
   (`--without-tool degree` reproduces the old setup).
+- `distances_from` and `neighborhood` (building blocks for multi-step questions): on "farthest node" / "nodes
+  within 2 hops" the model went from 1/4 to 4/4, one tool call each. Claude Code + Sonnet vs our harness on large
+  graphs: 9/9 both, ~28× fewer input tokens for ours (`claude_code_vs_harness_large`).
+- `PROMPT_VERSION` (`harness/prompts.py`, logged in every `run_start`) is **v3**; its changelog says what v1/v2/v3
+  mean. The GPU machine and the MacBook diverged on 2026-10-07/08 and were merged on 2026-10-08; the GPU side's
+  original commits are on branch `backup-gpu-2026-10-07`.
 - **M3 started** (plan approved 2026-10-07: 1 Pydantic schemas, 2 fuller tool set, 3 result handles,
   4 MCP server, 5 `run_python` sandbox, 6 close-out). Step 1 done: tool arguments and answers are Pydantic
   models; schemas the model sees are generated from them (byte-identical to before).
@@ -139,9 +147,10 @@ docs/
   GPU machine). Off by default; runner `--python tools|networkx`. Tests skip without Docker.
 - **`docs/architecture.md` describes the code as built; update it whenever the architecture changes.** Open decisions: `mcp`
   package as a dependency; Docker vs OrbStack/Colima for the sandbox (no Docker on the MacBook yet).
-- M2 still open: fixes A/B from the pilot (evidence wording, "G is undirected" prompt line), then the M2 runs on the GPU
-  machine (checkers on vs off; small all tasks, large at least mst / connected_nodes / node_degree), then the
-  closing learning-log entry.
+- **Next:** M3 step 6 (close-out). Still open from M2: fixes A/B from the pilot (evidence wording, "G is undirected"
+  prompt line); a run on small graphs was skipped (large only).
+- Ideas noted: questions for the multi-step family (farthest node, k-hop counts) from the M6 generator; Brig
+  (brig.sh, local microVM sandbox) as a candidate for sandboxing the Claude Code / Codex baselines in M6.
 - Machines: GPU machine (RTX 5070) for real runs; MacBook Air M4 has Ollama + qwen3:8b but is ~4.5× slower
   (~30 s/answer), so only for quick tests. No Anthropic API access yet (see learning log, 2026-10-07).
 
@@ -155,6 +164,7 @@ docs/
   docker run --rm hello-world           # check
   ```
   The sandbox image builds itself on first use (~1 min), then starts in ~0.3 s.
+  Done on the GPU machine: Docker 29 runs without sudo, and the sandbox tests pass (checked 2026-10-08).
 
 ## Model candidates (next GPU-machine session, decided 2026-10-08)
 RTX 5070 = 12 GB VRAM: dense models up to ~14B fit fully on the GPU; MoE models with ~3B active parameters can run

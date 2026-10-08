@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Annotated, Callable
 
 import networkx as nx
-from pydantic import BaseModel, BeforeValidator, ConfigDict, ValidationError
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationError
 
 
 def _not_a_bool(value):
@@ -38,6 +38,17 @@ class EdgeArgs(NoArgs):
 class PathArgs(NoArgs):
     source: NodeId
     target: NodeId
+
+
+def _k_not_a_bool(value):
+    if isinstance(value, bool):
+        raise ValueError("k must be a whole number, not true/false")
+    return value
+
+
+class NeighborhoodArgs(NodeArgs):
+    # How many edges away, at least 1. Field before the validator, or the schema says "ge" instead of "minimum".
+    k: Annotated[int, Field(ge=1), BeforeValidator(_k_not_a_bool)]
 
 
 def describe_nodes(graph: nx.Graph) -> str:
@@ -228,6 +239,33 @@ def topological_sort(graph: nx.Graph) -> dict:
         return {"is_dag": False, "cycle": [u for u, v in nx.find_cycle(graph)]}
 
 
+def distances_from(graph: nx.Graph, node: int) -> dict:
+    """Every node grouped by its distance (number of edges on a shortest path) from `node`
+    (in a directed graph, along the edge directions).
+
+    Return: {"layers": [[node], [nodes 1 edge away], [nodes 2 edges away], ...], "unreachable": [...]}
+    so layers[k] are the nodes at distance k, and the last layer holds the farthest reachable nodes.
+    One call answers a whole family of questions: farthest node, how many at distance k, eccentricity.
+    """
+    if error := missing_node(graph, node):
+        return error
+    distances = nx.single_source_shortest_path_length(graph, node)
+    layers = [[] for _ in range(max(distances.values()) + 1)]
+    for other, distance in distances.items():
+        layers[distance].append(other)
+    return {"layers": [sorted(layer) for layer in layers],
+            "unreachable": sorted(set(graph.nodes) - set(distances))}
+
+
+def neighborhood(graph: nx.Graph, node: int, k: int) -> dict:
+    """All nodes at distance 1 to k from `node` (the node itself not included), and how many there are."""
+    if error := missing_node(graph, node):
+        return error
+    within = nx.single_source_shortest_path_length(graph, node, cutoff=k)
+    nodes = sorted(other for other in within if other != node)
+    return {"count": len(nodes), "nodes": nodes}
+
+
 @dataclass(frozen=True)
 class Tool:
     function: Callable  # function(graph, **args) -> dict
@@ -256,6 +294,13 @@ TOOLS = {
                                                "or an odd cycle (proof that it isn't) if not."),
     "topological_sort": Tool(topological_sort, NoArgs, "Return a topological order of a directed graph G, "
                                                        "or a directed cycle if there is none."),
+    # Building blocks for multi-step questions (farthest node, k-hop counts): one call instead of dozens.
+    "distances_from": Tool(distances_from, NodeArgs,
+                           "Return every node grouped by its distance from a node: layers[k] are the nodes k edges "
+                           "away on a shortest path (layers[0] is the node itself, the last layer the farthest "
+                           "nodes), plus the nodes that can't be reached."),
+    "neighborhood": Tool(neighborhood, NeighborhoodArgs, "Return all nodes within k edges of a node (distance 1 to "
+                                                         "k, not the node itself), and how many there are."),
 }
 
 

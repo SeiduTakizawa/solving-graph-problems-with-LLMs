@@ -250,6 +250,59 @@ def test_topological_sort_of_undirected_graph_is_an_error():
     assert "directed" in run_tool(nx.path_graph(3), "topological_sort", {})["error"]
 
 
+def test_distances_from_matches_networkx(graphs):
+    for graph in graphs:
+        for node in graph.nodes:
+            result = run_tool(graph, "distances_from", {"node": node})
+            expected = nx.single_source_shortest_path_length(graph, node)
+            for distance, layer in enumerate(result["layers"]):
+                assert layer == sorted(n for n, d in expected.items() if d == distance)
+            assert sum(len(layer) for layer in result["layers"]) == len(expected)
+            assert result["unreachable"] == sorted(set(graph.nodes) - set(expected))
+
+
+def test_distances_from_disconnected_graph():
+    graph = nx.Graph([(0, 1), (1, 2), (3, 4)])
+    assert run_tool(graph, "distances_from", {"node": 0}) == {"layers": [[0], [1], [2]], "unreachable": [3, 4]}
+
+
+def test_distances_from_directed_follows_edge_directions():
+    graph = nx.DiGraph([(0, 1), (1, 2), (3, 0)])  # 3 points into 0, so 0 can't reach 3
+    assert run_tool(graph, "distances_from", {"node": 0}) == {"layers": [[0], [1], [2]], "unreachable": [3]}
+
+
+def test_neighborhood_matches_networkx(graphs):
+    for graph in graphs:
+        for node in graph.nodes:
+            for k in (1, 2, 3):
+                result = run_tool(graph, "neighborhood", {"node": node, "k": k})
+                expected = sorted(n for n, d in nx.single_source_shortest_path_length(graph, node, cutoff=k).items()
+                                  if n != node)
+                assert result == {"count": len(expected), "nodes": expected}
+
+
+def test_neighborhood_k1_is_the_neighbors(graphs):
+    for graph in graphs[:20]:
+        for node in graph.nodes:
+            assert run_tool(graph, "neighborhood", {"node": node, "k": 1})["nodes"] == sorted(graph.neighbors(node))
+
+
+def test_distances_from_missing_node_is_an_error():
+    assert "does not exist" in run_tool(nx.path_graph(3), "distances_from", {"node": 99})["error"]
+
+
+@pytest.mark.parametrize("k", [0, -1, 1.5, True])
+def test_neighborhood_bad_k_is_an_error(k):
+    error = run_tool(nx.path_graph(3), "neighborhood", {"node": 0, "k": k})["error"]
+    assert error.startswith("Bad arguments for neighborhood: k:")
+
+
+def test_neighborhood_schema_says_minimum():
+    from harness.tools.graph_tools import GRAPH_TOOLS
+    schema = next(t for t in GRAPH_TOOLS if t["function"]["name"] == "neighborhood")["function"]["parameters"]
+    assert schema["properties"]["k"] == {"minimum": 1, "type": "integer"}
+
+
 # Tools never raise: every bad input comes back as an error the model can read.
 
 def test_missing_node_is_an_error():

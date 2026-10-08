@@ -447,6 +447,103 @@ tool, task or verifier), kept up to date as the architecture changes.
 
 ---
 
+## 2026-10-07: Claude Code (Sonnet) vs our harness on large graphs; tools for multi-step questions
+
+### Claude Code + Sonnet 5.5 vs our harness + qwen3:8b (preview of M6, not a fair comparison)
+Large dev graphs, 3 questions each of mst, connected_nodes, node_degree, 1 run. Ours: default tools, checkers on,
+RTX 5070. Claude Code: `claude -p --model sonnet`, allowed only to run the project's Python (networkx) and read
+the graph file, final answer as JSON on the last line. Both graded by `eval/tasks.py`. Results and the script in
+`results/harness_runs/claude_code_vs_harness_large/`.
+
+| | ours (qwen3:8b, local) | Claude Code (Sonnet 5.5) |
+|---|---|---|
+| correct | 9/9 | 9/9 |
+| input tokens / question | ~1,500 | ~41,900 (~28×, mostly Claude Code's own prompt and tools, cached) |
+| output tokens / question | 531 | 345 |
+| time / question | 12.2 s (~6.8 s without the first, cold-start question) | 6.0 s |
+| cost for 9 | $0 | $0.38 (API-equivalent, subscription) |
+
+Per task: we're faster on short answers (node_degree 2.8 s vs 5.3 s), Sonnet on long ones (mst 7.2 s vs 28.4 s,
+since an 8B model on a consumer GPU writes 50 edges slowly). **Both get 100%: networkx does the real work in both
+setups, so on these tasks the only difference is cost.** Different models and different harnesses, so this is
+a preview; the fair version (same model, same tools via MCP) is M6.
+
+### Multi-step questions: low-level tools aren't enough
+Two questions no single tool answered: "which node is farthest from node 0?" and "how many other nodes are within 2
+hops of node 5?", on small graph 0 (7 nodes) and large graph 0 (29 nodes), 1 run each, answer type `number`.
+
+| | basic tools (get_neighbors, shortest_path, ...) | + `distances_from`, `neighborhood` |
+|---|---|---|
+| small, farthest | ✓ 7 steps, 70 s (connected_components, then shortest_path ×4) | ✓ 2 steps, 20 s |
+| small, within 2 hops | ✗ gave up (`cannot_answer`) with no tool call, 87 s | ✓ 2 steps, 10 s |
+| large, farthest | ✗ gave up after one shortest_path call | ✓ 2 steps, 16 s |
+| large, within 2 hops | ✗ answered 26 (truth 28) after only 4 of the get_neighbors calls needed, 151 s | ✓ 2 steps, 9 s |
+
+**1/4 → 4/4.** With low-level tools the model would have needed ~28 calls plus merging lists in its head, so it gave
+up or did part of the work and guessed. (These runs weren't traced; numbers are from the console output.)
+
+- **Building blocks, not one-off tools.** `distances_from(node)` returns the nodes in layers by distance and
+  `neighborhood(node, k)` the nodes within k hops. Neither was written for these exact questions: they also answer
+  "how many at distance 3", "anything unreachable", eccentricity, any k-hop question.
+- **Third time the same pattern** (after `has_edge` and `degree`): a fitting tool replaces long, error-prone
+  reasoning by a cheap model, at a fraction of the time.
+- **`cannot_answer` can become an easy way out.** It stopped the guessing, but now the model sometimes quits on a
+  question it could answer with the tools it has. Worth tracking as its own rate.
+- **New question types have no checker**, so "26" looked as confident as a correct answer.
+
+Design question for later: how general should tools be (one per question, building blocks, or `run_python`)?
+If code is added (M3), the router should only offer it when no task matches, and its usage rate should be measured.
+
+`PROMPT_VERSION` added to `harness/prompts.py` and logged in every `run_start`: v1 = everything up to the M2 pilots,
+v2 = the two new tools. (After merging with the MacBook's M3 work the current version is v3; see the changelog.)
+
+---
+
+## 2026-10-07: M2 closing run, large graphs, checkers on vs off
+
+**Setup:** `ollama_chat/qwen3:8b` on the RTX 5070, large dev graphs, 9 tasks × 15 questions × 2 runs (connectivity
+has no large questions), prompt version v2 (= v1 + `distances_from` and `neighborhood`; see the changelog in `harness/prompts.py`). Checkers on
+(`m2_large_verify`) vs off (`--no-verify`, `m2_large_noverify`); with checkers off the model is still *asked* for
+evidence (same answer types), only the checking is switched off. Fixes A/B from the pilot were not applied first.
+Report: `uv run python -m eval.analysis.report m2_large_verify m2_large_noverify --by-task`
+(plot in `results/harness_runs/m2_large_report.png`).
+
+| | checkers on | checkers off |
+|---|---|---|
+| accuracy (lenient) | 100% (270/270) | 100% (270/270) |
+| strict accuracy (no rescued tool call) | 88.1% | 90.4% |
+| answers a checker looked at | 44% (4 of 9 tasks) | 0% |
+| answers sent back by a checker | 18 | — |
+| tokens / question | 2,237 | 2,145 (+4% with checkers) |
+| time / question | 4.6 s | 4.3 s |
+
+### Findings
+1. **The checkers never caught a wrong answer**, because there were none: the tools compute the answer and the
+   model copies it correctly. On these tasks checkers cost a little and bought nothing.
+2. **All 18 rejections were the same thing: a "yes" to cycle_check without the cycle** (18 of 30 cycle_check runs,
+   all fixed on the 2nd try). That made cycle_check +32% tokens (2,797 vs 2,121) and +1.1 s. It's exactly pilot
+   finding 3, and fix A (say evidence is *required*) would remove it.
+3. **Rescued text tool calls are the real error source: 10–12% of answers**, and concentrated in
+   **connected_nodes (16/30 and 12/30, about half)**, then shortest_path and mst: tasks that end in a long list.
+   Lenient mode turns these into correct answers; strict mode would score 88–90%. Result handles (M3) should help:
+   submitting a handle instead of writing out 45 nodes.
+4. **Large dataset graphs don't separate anything any more:** every task is 100% with the current tools (see the
+   dataset audit). Harder tasks and bigger graphs are needed (scaled generator, M6).
+
+### M2 summary
+Built: 5 evidence-only checkers (shortest_path, mst full; connectivity and cycle_check "yes" with evidence;
+connected_nodes partial), counts / degree / edge existence / "no" answers unverified by design; the report script
+with bootstrap CIs; the `degree`, `has_edge`, `distances_from`, `neighborhood` tools; prompt versioning.
+Main lessons: verifiers must check evidence, never re-solve (oracle); a fitting tool beats a checker (it removes
+the error instead of catching it, ~8× cheaper each time we measured); the format of the final answer (text tool
+calls, missing evidence) is where a small model fails now, not the reasoning. **M2 done.**
+
+Note (merge, 2026-10-08): these two entries were written on the GPU machine on a branch that diverged from the
+MacBook's M3 work; they were merged in afterwards. `claude_code_vs_harness_large/compare.py` was written for
+that branch's code (v2) and is kept as a record of how the run was made, not as a script for today's code.
+
+---
+
 ## 2026-10-08: M3 step 4, MCP server
 
 **What MCP is:** an open protocol for connecting AI apps to tools. A server announces its tools (name, description,
