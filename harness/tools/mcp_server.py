@@ -24,6 +24,7 @@ import networkx as nx
 from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
 
+from harness.brief import brief
 from harness.tools.graph_tools import GRAPH_TOOLS, TOOLS, run_tool
 from harness.tools.handles import HANDLE_LIMIT, READ_RESULT, HandleStore
 
@@ -49,7 +50,7 @@ def make_server(graph: nx.Graph, handle_limit: int | None = HANDLE_LIMIT) -> Ser
             try:
                 result = run_tool(graph, name, args)  # validates the arguments, never raises on bad input
             except Exception as e:  # a buggy tool must not kill the server
-                result = {"error": f"Tool {name} crashed: {e}"}
+                result = {"error": f"Tool {name} crashed: {brief(str(e))}"}
             if store and "error" not in result:
                 result = store.compact(result)
         else:

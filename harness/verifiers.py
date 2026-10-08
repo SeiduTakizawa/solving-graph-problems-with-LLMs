@@ -5,6 +5,8 @@ None if the answer is valid, or an error message the model can act on.
 """
 import networkx as nx
 
+from harness.brief import brief
+
 
 def check_path(graph: nx.Graph, source: int, target: int, path) -> str | None:
     """None if `path` is a real path in G from source to target, otherwise what is wrong with it."""
@@ -122,11 +124,14 @@ def verify_cycle(graph: nx.Graph, params: dict, answer: bool, cycle: list[int] |
 
     # 1. In a simple undirected graph a cycle has at least 3 nodes (0-1-0 just walks one edge back and forth).
     if len(cycle) < 3:
-        return f"{cycle} is not a cycle: a cycle needs at least 3 different nodes."
+        return f"{brief(cycle)} is not a cycle: a cycle needs at least 3 different nodes."
 
     # 2. No node twice: otherwise it is a walk, not a cycle.
-    if len(set(cycle)) != len(cycle):
-        return f"{cycle} visits a node more than once."
+    seen = set()
+    for node in cycle:
+        if node in seen:  # name the repeated node instead of repeating the whole cycle back
+            return f"The cycle visits node {node} more than once."
+        seen.add(node)
 
     # 3. Every step must be a real edge, including the one closing the cycle (last node back to the first).
     for u, v in zip(cycle, cycle[1:] + cycle[:1]):

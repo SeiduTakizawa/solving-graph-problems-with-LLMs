@@ -1,9 +1,10 @@
 """The two tools that end a run: submit_answer (one per answer type) and cannot_answer."""
-import json
 from typing import Annotated
 
 from annotated_types import Len
 from pydantic import StrictBool, StrictInt, TypeAdapter, ValidationError
+
+from harness.brief import brief
 
 # Pydantic type of each answer. It checks submitted answers and generates the schema the model sees.
 # Strict types: in Python True/False are also ints, so a number must not be a bool and vice versa.
@@ -86,7 +87,7 @@ def check_answer(answer, answer_type: str) -> str | None:
         _ADAPTERS[answer_type].validate_python(answer)
         return None
     except ValidationError:
-        return (f"Invalid answer {json.dumps(answer)}: the answer must be {ANSWER_TYPES[answer_type]['description']}. "
+        return (f"Invalid answer {brief(answer)}: the answer must be {ANSWER_TYPES[answer_type]['description']}. "
                 "Call submit_answer again with the right type.")
 
 

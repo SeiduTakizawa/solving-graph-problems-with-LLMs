@@ -7,6 +7,7 @@ import networkx as nx
 
 from harness import models
 from harness.answers import CANNOT_ANSWER, check_answer, evidence_fields, make_submit_answer
+from harness.brief import brief
 from harness.parsing import looks_like_text_tool_call, parse_text_tool_call
 from harness.prompts import FORMAT_ERROR, NUDGE, SYSTEM_PROMPT
 from harness.tools.graph_tools import GRAPH_TOOLS, run_tool
@@ -160,7 +161,7 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
                 try:
                     result = run_tool(graph, name, args)
                 except Exception as e:  # a buggy tool must not kill the agent
-                    result = {"error": f"Tool {name} crashed: {e}"}
+                    result = {"error": f"Tool {name} crashed: {brief(str(e))}"}
                 if store and "error" not in result:
                     result = store.compact(result)
                     # read_result is offered from the first handle on, not before: on graphs where nothing is

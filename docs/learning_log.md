@@ -538,3 +538,21 @@ Now: `Node 123456 does not exist. G has 10000 nodes, with ids 0 to 9999.` (66 ch
 previews) needs the same "never proportional to G" rule. A happy-path test on a big graph doesn't exercise the
 error paths. Note: the error text changed on the dataset too (it showed ≤50 ids before); only runs that hit this
 error are affected.
+
+### Follow-up: every message that repeats a value back (audit)
+Went through every formatted message the model can see and measured it on the 10k graph with long wrong answers:
+
+| message | before | after |
+|---|---|---|
+| `check_answer`: wrong-type answer repeated in full | **174,455** chars | ~280 (first items + "(9999 items)") |
+| `read_result`: a page of big items (e.g. 300-node components) | **69,676** | ~3,500 (each big item becomes its own handle) |
+| `verify_cycle`: the whole cycle repeated | **28,923** | "The cycle visits node 3 more than once." |
+| unknown handle: every stored handle listed | 438 (grows with #components) | first 10 + "and N more" |
+| tool crash: full exception text | unbounded | shortened |
+| `verify_mst`, `verify_neighbors`, `verify_shortest_path` | 24–38 | unchanged (they already name only the bad item) |
+
+Fix: `harness/brief.py` (`brief()`), used wherever a value is repeated to the model. `tests/test_message_size.py`
+guards all of it on a 10,000-node graph.
+
+**Rule (now in `docs/architecture.md`): nothing the model reads may grow with the graph.** Name the bad item, give
+counts and ranges, show the first few items and the size, never the whole thing.

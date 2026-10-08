@@ -77,10 +77,12 @@ class HandleStore:
         except ValidationError as e:
             return {"error": f"Bad arguments for read_result: {e.errors()[0]['loc'][0]}: {e.errors()[0]['msg']}"}
         if a.handle not in self.values:
-            known = sorted(self.values) or "none yet"
-            return {"error": f"Unknown handle {a.handle}. Stored handles: {known}."}
+            known = list(self.values)
+            listed = ", ".join(known[:10]) + (f" and {len(known) - 10} more" if len(known) > 10 else "")
+            return {"error": f"Unknown handle {a.handle}. Stored handles: {listed or 'none yet'}."}
         value = self.values[a.handle]
-        items = value[a.offset:a.offset + a.limit]
+        # Items can themselves be big (a list of 300-node components): they get their own handles too.
+        items = [self.shrink(item) for item in value[a.offset:a.offset + a.limit]]
         return {"handle": a.handle, "length": len(value), "offset": a.offset, "items": items,
                 "more": a.offset + len(items) < len(value)}
 

@@ -105,6 +105,11 @@ graph_tools.TOOLS ──┬── our loop: run_tool() in-process
                     └── mcp_server.py ── stdio ── Claude Code / LangChain / any MCP client
 ```
 
+**Nothing the model reads grows with the graph.** Tool results go through result handles; everything else that
+repeats a value back (a wrong answer, a cycle, an exception text) goes through `harness/brief.py` (`brief()`: the
+first items and the size), and errors describe G by count and id range, never by listing nodes.
+`tests/test_message_size.py` checks all of these on a 10,000-node graph.
+
 **Robustness in the loop.** Text tool calls are rescued (lenient) or answered with a format error (strict),
 broken JSON arguments and crashing tools come back as errors, the model's hidden thinking is not re-sent, and
 identical replies 3× in a row end the run.
