@@ -179,3 +179,43 @@ def test_bad_triangle_evidence(answer, triangles, message):
 
 def test_zero_triangles_need_no_list():
     assert verify_triangle_count(nx.path_graph(3), {"node": 1}, 0) is None
+
+
+# --- v9: the cut-off nudge, code results by handle, skills ---
+
+def test_a_cut_off_reply_gets_its_own_nudge():
+    from harness.prompts import THOUGHT_TOO_LONG
+    replies = iter([{"role": "assistant", "content": "", "tool_calls": None, "extra": {"output_cut": True}},
+                    call("cannot_answer", {"reason": "x"})])
+    result = run_agent("?", nx.path_graph(3), call_model=lambda m, t: next(replies))
+    assert result.messages[3] == {"role": "user", "content": THOUGHT_TOO_LONG}
+
+
+def test_skill_is_added_to_the_system_prompt():
+    from harness.prompts import SKILL_PREFIX
+    from harness.skills import load_skill
+    skill = load_skill("triangle_count")
+    model, _ = scripted(call("cannot_answer", {"reason": "x"}))
+    result = run_agent("?", nx.path_graph(3), call_model=model, config=AgentConfig(skill=skill))
+    assert result.messages[0]["content"].endswith(SKILL_PREFIX + skill)
+    assert load_skill("node_count") is None  # tasks without a playbook get none
+
+
+@pytest.mark.parametrize("task", ["common_neighbors_max", "hop_max_degree", "triangle_count"])
+def test_skill_code_runs_and_gives_the_reference_answer(task):
+    # The playbook's code, with the placeholders filled in, run against the tool functions: it must be right.
+    import re
+    from eval.tasks import load_graph, reference_answer
+    from harness.sandbox.runner import tool_function
+    from harness.skills import load_skill
+    code = re.search(r"```\n(.*?)```", load_skill(task), re.S).group(1)
+    for item in load_tasks(task, "large", "dev", 3):
+        graph = load_graph("large", item["graph_id"])
+        filled = code.replace("node = ...", f"node = {item['params']['node']}").replace(
+            "node, k = ..., ...", f"node, k = {item['params']['node']}, {item['params'].get('k')}")
+        namespace = {name: tool_function(graph, name) for name in DEFAULT_TOOLS}
+        namespace["print"] = lambda *a: None
+        exec(filled, namespace)
+        expected = reference_answer(task, graph, item["params"])
+        got = len(namespace["result"]) if task == "triangle_count" else namespace["result"]
+        assert got == expected, (task, item)

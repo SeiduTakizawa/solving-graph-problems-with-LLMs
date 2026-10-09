@@ -210,6 +210,20 @@ not).
 The report's `--route` table shows how questions were routed, the router's tokens and time, and how many graph
 tools the agent started with; router tokens are included in `tokens / q`.
 
+**Skills** (`harness/skills/<task>.md`, `eval.runner --skills`). A short playbook for the routed task, added to the
+system prompt after `SKILL_PREFIX`. Written for the five tasks where traces showed the model improvising and
+failing (common_neighbors_max, hop_max_degree, triangle_count, shortest_path_via, connected_components_count); code
+in a playbook has `...` placeholders for the question's nodes, and `tests/test_tool_exposure.py` runs it against the
+reference answers. The ten simple tasks have none yet (one tool call answers them).
+
+**Long replies** (v9). Ollama replies are capped at `OLLAMA_NUM_PREDICT` (8,192) tokens per call: normal replies
+are under ~5.5k, and the longer ones were thinking spirals that filled the 16k window and came back empty. A capped
+reply is flagged `output_cut` and gets the `THOUGHT_TOO_LONG` nudge; `near_context_limit` now checks prompt + reply.
+
+**Code results by handle** (v9). A `run_python` list of 20+ numbers also gets a `result_handle`, though it is shown
+in full, so the model can submit it as evidence without copying it. `submit_answer` accepts handles from the first
+stored value on, whether it came from a tool or from code.
+
 ## Not built yet
 
-Skills (M4), interactive CLI (M4.5), escalation (M5), benchmark adapters and baselines (M6).
+Porting the old pseudocodes as skills for the simple tasks (M4), interactive CLI (M4.5), escalation (M5), benchmark adapters and baselines (M6).

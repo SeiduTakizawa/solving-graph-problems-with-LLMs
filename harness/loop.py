@@ -11,10 +11,13 @@ from harness.brief import brief
 from harness.compaction import compact, size
 from harness.parsing import looks_like_text_tool_call, parse_text_tool_call
 from harness.prompts import (CODE_HINT, EMPTY_REPLY, FORMAT_ERROR, MORE_TOOLS_DESCRIPTION, NUDGE, PROMPT_VERSION,
-                             SYSTEM_PROMPT)
+                             SKILL_PREFIX, SYSTEM_PROMPT, THOUGHT_TOO_LONG)
 from harness.sandbox import run_python_tool, shown_reply
 from harness.tools.graph_tools import DEFAULT_TOOLS, GRAPH_TOOLS, TOOL_CATEGORIES, run_tool
 from harness.tools.handles import HANDLE_LIMIT, READ_RESULT, HandleStore
+from harness.tools.handles import size as numbers_in
+
+CODE_HANDLE_MIN = 20  # numbers: a run_python list this big also gets a handle (see the run_python branch)
 from harness.trace import Trace
 
 
@@ -28,6 +31,7 @@ class AgentConfig:
     graph_tools: tuple[str, ...] | None = None  # names of the graph tools to offer; None = the default ones
     code_tools: tuple[str, ...] | None = None  # tool functions inside run_python; None = default + offered ones
     more_tools: bool = False  # offer more_tools(category): the agent adds a category of tools (M4 tool exposure)
+    skill: str | None = None  # the task's playbook (harness/skills/), added to the system prompt; None = none
     handle_limit: int | None = HANDLE_LIMIT  # results with more numbers than this become handles; None = off
     python: str | None = None  # run_python: None = off, "tools" (code calls our tools) or "networkx" (also G, nx)
     code_hint: bool = False  # add CODE_HINT (when to combine tools and code) to the system prompt; needs python
@@ -104,7 +108,8 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
                          compactions=compactions)
 
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT + (" " + CODE_HINT if config.python and config.code_hint else "")},
+        {"role": "system", "content": SYSTEM_PROMPT + (" " + CODE_HINT if config.python and config.code_hint else "")
+                                      + (SKILL_PREFIX + config.skill if config.skill else "")},
         {"role": "user", "content": question},
     ]
     wanted = DEFAULT_TOOLS if config.graph_tools is None else config.graph_tools
@@ -227,6 +232,11 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
                         result = shown_reply(sandbox.run(args["code"]))
                         if store:  # a big `result` becomes a handle, like any tool result
                             result = store.compact(result)
+                            # A list in `result` also gets a handle when it isn't small, though it is shown in full:
+                            # the model can submit it by handle instead of copying it (it couldn't copy 60 triangles).
+                            value = result.get("result")
+                            if isinstance(value, list) and numbers_in(value) >= CODE_HANDLE_MIN:
+                                result["result_handle"] = store.put(value)
                 else:
                     try:
                         result = run_tool(graph, name, args)
@@ -234,13 +244,13 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
                         result = {"error": f"Tool {name} crashed: {brief(str(e))}"}
                     if store and "error" not in result:
                         result = store.compact(result)
-                        # read_result is offered from the first handle on, not before: on graphs where nothing is
-                        # ever big (the whole current dataset) the tool list stays exactly as it was.
-                        if store.values and "read_result" not in offered:
-                            tools.insert(tools.index(submit_tool), READ_RESULT)
-                            offered.add("read_result")
-                            # ...and submit_answer starts accepting handles (its schema said "array" until now).
-                            tools[tools.index(submit_tool)] = submit_tool = make_submit_answer(answer_type, handles=True)
+                # read_result is offered from the first handle on, not before: on graphs where nothing is ever big
+                # (the whole current dataset, without code) the tool list stays exactly as it was.
+                if store and store.values and "read_result" not in offered:
+                    tools.insert(tools.index(submit_tool), READ_RESULT)
+                    offered.add("read_result")
+                    # ...and submit_answer starts accepting handles (its schema said "array" until now).
+                    tools[tools.index(submit_tool)] = submit_tool = make_submit_answer(answer_type, handles=True)
                 log("tool_call", step=step, name=name, args=args, result=result)
                 messages.append({
                     "role": "tool",
@@ -253,6 +263,8 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
                 content = reply.get("content") or ""
                 if looks_like_text_tool_call(content):
                     kind, nudge = "format_error", FORMAT_ERROR
+                elif stats.get("output_cut"):
+                    kind, nudge = "thought_too_long", THOUGHT_TOO_LONG
                 elif not content.strip():
                     kind, nudge = "empty_reply", EMPTY_REPLY
                 else:

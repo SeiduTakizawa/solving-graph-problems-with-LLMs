@@ -22,7 +22,7 @@ def run_python_tool(mode: str, extra: tuple[str, ...] = ()) -> dict:
                            "the same arguments, returning plain values: get_neighbors(4) -> [2, 5], degree(4) -> 2, "
                            "has_edge(0, 1) -> True, shortest_path(0, 5) -> [0, 2, 5] (None if there is no path), "
                            "graph_info() -> {'nodes': 29, 'edges': 148, 'directed': False} (a dict, like "
-                           "is_bipartite()). A tool error raises ValueError. Don't redefine these functions." + extra +
+                           "is_bipartite()). A tool error raises ValueError. They are already defined: no import needed. Don't redefine these functions." + extra +
                            " Variables persist between calls. Put the value you want back in a variable named "
                            "`result`; printed output is shown too (shortened if long). No network or files; "
                            "each call may run at most 10 seconds.",

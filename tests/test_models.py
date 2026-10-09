@@ -7,9 +7,9 @@ import pytest
 from harness import models
 
 
-def fake_response():
+def fake_response(finish_reason="stop"):
     message = SimpleNamespace(model_dump=lambda: {"role": "assistant", "content": "", "tool_calls": None})
-    return SimpleNamespace(choices=[SimpleNamespace(message=message)],
+    return SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason=finish_reason)],
                            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5))
 
 
@@ -108,3 +108,27 @@ def test_a_prompt_near_the_limit_is_flagged(monkeypatch, no_waiting):
     scripted_completion(monkeypatch, fake_response(), big)
     assert "near_context_limit" not in models.call_model([], [], model="ollama_chat/qwen3:8b")["extra"]
     assert models.call_model([], [], model="ollama_chat/qwen3:8b")["extra"]["near_context_limit"] == models.OLLAMA_NUM_CTX
+
+
+def test_ollama_replies_are_capped_and_a_cut_reply_is_flagged(monkeypatch, no_waiting):
+    calls = scripted_completion(monkeypatch, fake_response(), fake_response("length"), fake_response())
+    assert "output_cut" not in models.call_model([], [], model="ollama_chat/qwen3.5:9b")["extra"]
+    assert models.call_model([], [], model="ollama_chat/qwen3.5:9b")["extra"]["output_cut"] is True
+    models.call_model([], [], model="openai/gpt-5")
+    assert calls[0]["max_tokens"] == models.OLLAMA_NUM_PREDICT and "max_tokens" not in calls[2]
+
+
+def test_a_long_reply_near_the_limit_is_flagged(monkeypatch, no_waiting):
+    # The 14.5k-token thinking spiral: the prompt was small, prompt + reply filled the window.
+    long = fake_response()
+    long.usage.prompt_tokens, long.usage.completion_tokens = 1_700, models.OLLAMA_NUM_CTX - 1_800
+    scripted_completion(monkeypatch, long)
+    assert models.call_model([], [], model="ollama_chat/qwen3.5:9b")["extra"]["near_context_limit"]
+
+
+def test_think_is_passed_to_ollama_only(monkeypatch, no_waiting):
+    calls = scripted_completion(monkeypatch, fake_response(), fake_response(), fake_response())
+    models.call_model([], [], model="ollama_chat/qwen3.5:9b", think=False)
+    models.call_model([], [], model="ollama_chat/qwen3.5:9b")
+    models.call_model([], [], model="openai/gpt-5", think=False)
+    assert calls[0]["think"] is False and "think" not in calls[1] and "think" not in calls[2]

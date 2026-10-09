@@ -171,8 +171,12 @@ docs/
   regex 60%, LLM 94% (r3, after schema fixes seen on dev; test phrasings untouched). Wired into the runner
   (`--router oracle|regex|llm`, `--phrasing paraphrase`), tool exposure (`--tools all|task|hybrid|agent`, task
   families in `harness/tasks.py`, `more_tools` escape hatch), `any` answer type for unknown routes, count verifiers
-  with evidence (components, triangles). `PROMPT_VERSION` **v8**. Decisions, results, Jev: `docs/router.md`.
-  Still M4: skills (ported pseudocodes), repeated runs of the exposure ablation, a better confidence signal.
+  with evidence (components, triangles). Decisions, results, Jev: `docs/router.md`. Results: router + hybrid as
+  accurate as oracle + all tools with 25–37% fewer tokens (`m4_*`, `ms_*`, 1 run).
+  v9 fixes from those traces: per-step output cap (thinking spirals), code lists submittable by handle, skills for
+  five tasks (`harness/skills/`, `--skills`), "no import needed". `PROMPT_VERSION` **v9**.
+  Still M4: skills for the simple tasks (ported pseudocodes), 3-run exposure / skills ablations, a better router
+  confidence signal (route twice for parameter-heavy tasks).
 - Ideas noted: questions for the multi-step family (farthest node, k-hop counts) from the M6 generator; Brig
   (brig.sh, local microVM sandbox) as a candidate for sandboxing the Claude Code / Codex baselines in M6.
 - Machines: GPU machine (RTX 5070) for real runs; MacBook Air M4 has Ollama + qwen3:8b but is ~4.5× slower

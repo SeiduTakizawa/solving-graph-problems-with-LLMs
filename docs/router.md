@@ -90,6 +90,25 @@ not proven; needs 3 runs.
 - common_neighbors_max: max steps, and answering the node itself: a skill should help.
 - One shortest_path_via question took 178 s (still right): likely a thinking spiral; cap the output per step.
 
+## v9 fixes and skills (2026-10-09; same 20 multi-step questions, router + hybrid, 1 run)
+
+| run | accuracy | tokens / q | time / q |
+|---|---|---|---|
+| oracle + all tools (v8) | 65% | 23,698 | 45.6 s |
+| router + hybrid (v8) | 80% | 17,866 | 38.1 s |
+| router + hybrid + v9 fixes + skills (`ms_llm_hybrid_v9_skills`) | 85% | 15,877 | 30.0 s |
+
+Per task with skills: shortest_path_via 5/5, hop_max_degree 5/5, common_neighbors_max **5/5** (was 2–3/5: the
+playbook stopped "the node itself" and the step-limit runs), triangle_count 2/5. Both triangle misses had the
+**right count** (390 and 730, checked against networkx): the verifier rejected them because the model kept the
+list in its own variable, got no handle, and copied 2–5 triangles by hand. Lesson: an evidence check is only fair
+if the evidence can be delivered. Fix: every rejection of missing or partial evidence now says how to send a long
+list by handle (`verifiers.LONG_LIST_HOW`), and the playbook says to keep the list in `result` itself.
+Rerun of the 5 triangle questions with that (`ms_triangles_v9b`): **5/5**, 9,546 tokens / q, 12.3 s (was 2/5,
+36,843 tokens, 48.2 s). One question still needed five tries (a flat list, an empty one, an invented handle name)
+before it sent the real handle. Skills and the v9 fixes were measured together: a skills-only ablation is still
+to do, and all of this is 1 run.
+
 ## Open questions
 - LLM confidence is self-reported and coarse (0.5 / 0.95 / 1 in the smoke test). Options: logprobs of the task
   (if Ollama exposes them), agreement over a few samples, or just calibrating the threshold on dev.

@@ -179,6 +179,12 @@ def verify_path_via(graph: nx.Graph, params: dict, answer: list[int]) -> str | N
     return None
 
 
+# How to deliver a long evidence list (2026-10-09: right counts of 390 and 730 triangles were rejected because the
+# model copied 2-5 of them by hand and ran out of steps). Added to every rejection of missing or partial evidence.
+LONG_LIST_HOW = (" If the list is long, don't copy it: in run_python set `result` to the full list; the reply then "
+                 "shows a result_handle (e.g. \"result_2\"), and you send that handle in the {field} field. A list a "
+                 "tool returned as a handle can be sent by its handle too.")
+
 # Counts with evidence (v8): the answer comes with what was counted. Each listed item is checked, and the count
 # must match the list, so an overcount or an invented item is caught. A missed item is not (finding it would mean
 # solving the question again), like verify_neighbors.
@@ -188,11 +194,13 @@ def verify_components_count(graph: nx.Graph, params: dict, answer: int, componen
     must be `answer` of them. No edge between them means no real component was split in two: an overcount is
     caught. Two components listed as one (an undercount) is not checked."""
     if not components:
-        return "Also send the components you counted, one list of nodes per component, in the components field."
+        return ("Also send the components you counted, one list of nodes per component, in the components field."
+                + LONG_LIST_HOW.format(field="components"))
     if not isinstance(components, list) or not all(isinstance(c, list) and c for c in components):
         return "components must be a list of non-empty lists of nodes."
     if len(components) != answer:
-        return f"You answered {answer} but listed {len(components)} components."
+        return (f"You answered {answer} but listed {len(components)} components: send all of them."
+                + LONG_LIST_HOW.format(field="components"))
     where = {}
     for i, component in enumerate(components):
         for node in component:
@@ -215,11 +223,13 @@ def verify_triangle_count(graph: nx.Graph, params: dict, answer: int, triangles:
     be `answer` of them. A missed triangle is not checked."""
     node = params["node"]
     if not triangles:  # none listed: fine for a count of 0
-        return None if answer == 0 else "Also send the triangles you counted, each as its three nodes, in the triangles field."
+        return None if answer == 0 else ("Also send the triangles you counted, each as its three nodes, in the "
+                                         "triangles field." + LONG_LIST_HOW.format(field="triangles"))
     if not isinstance(triangles, list) or not all(isinstance(t, list) for t in triangles):
         return "triangles must be a list of [a, b, c] node lists."
     if len(triangles) != answer:
-        return f"You answered {answer} but listed {len(triangles)} triangles."
+        return (f"You answered {answer} but listed {len(triangles)} triangles: send all of them."
+                + LONG_LIST_HOW.format(field="triangles"))
     seen = set()
     for triangle in triangles:
         nodes = frozenset(triangle)

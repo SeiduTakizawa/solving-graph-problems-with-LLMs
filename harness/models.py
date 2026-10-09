@@ -16,7 +16,11 @@ RETRY_WAITS_S = (2, 8, 30)  # seconds to wait before each retry; after the last 
 # (qwen3.5:9b: 262k). Past it, the prompt is cut and the reply stops short, silently: qwen3.5's "empty replies" in
 # the combine runs all came at ~3,850 prompt tokens. 16k fits qwen3.5:9b and qwen3:8b on the 12 GB GPU.
 OLLAMA_NUM_CTX = 16_384
-NEAR_LIMIT = 0.9  # a prompt above this share of the context gets flagged in the trace
+NEAR_LIMIT = 0.9  # a prompt (or prompt + reply) above this share of the context gets flagged in the trace
+# Output cap per model call (Ollama's num_predict). Normal replies are short (2026-10-09, 914 qwen3.5 calls: median
+# 290 tokens, p99 5.5k); the 5 over 8k were all thinking spirals (11.6k-14.9k tokens, up to 162 s) that ran into the
+# 16k window and came back empty. With the cap a spiral stops at 8k, inside the window, and gets its own nudge.
+OLLAMA_NUM_PREDICT = 8_192
 
 
 def context_window(model: str) -> int | None:
@@ -34,7 +38,7 @@ def call_model(messages: list[dict], tools: list[dict], model: str = DEFAULT_MOD
     start = time.time()
     errors = []
     num_ctx = context_window(model)
-    options = {"num_ctx": num_ctx} if num_ctx else {}
+    options = {"num_ctx": num_ctx, "max_tokens": OLLAMA_NUM_PREDICT} if num_ctx else {}
     if think is not None and num_ctx:
         options["think"] = think
     for wait in (*RETRY_WAITS_S, None):
@@ -52,8 +56,10 @@ def call_model(messages: list[dict], tools: list[dict], model: str = DEFAULT_MOD
         "completion_tokens": response.usage.completion_tokens,
         "latency_s": round(time.time() - start, 3),
     }
-    if num_ctx and response.usage.prompt_tokens > NEAR_LIMIT * num_ctx:  # the reply may have been cut short
-        reply["extra"]["near_context_limit"] = num_ctx
+    if num_ctx and response.usage.prompt_tokens + response.usage.completion_tokens > NEAR_LIMIT * num_ctx:
+        reply["extra"]["near_context_limit"] = num_ctx  # the reply may have been cut short by the window
+    if response.choices[0].finish_reason == "length":  # stopped by the output cap (or the window), not by the model
+        reply["extra"]["output_cut"] = True
     if errors:  # only present when something went wrong, so normal traces stay unchanged
         reply["extra"]["retries"] = len(errors)
         reply["extra"]["retry_errors"] = errors

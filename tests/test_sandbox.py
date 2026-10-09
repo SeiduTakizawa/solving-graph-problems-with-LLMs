@@ -147,3 +147,23 @@ def test_opt_in_tools_are_only_in_code_when_offered(sandbox):
     with DockerSandbox(SMALL, tools=("degree", "triangles")) as sb:
         assert sb.run("result = triangles(4)")["result"] == []
         assert sb.run("result = len(k_core(1))")["error"]  # only what was asked for
+
+
+def test_a_code_list_can_be_submitted_by_handle():
+    # v9: a run_python list of 20+ numbers gets a result_handle, and submit_answer then accepts it.
+    big = nx.complete_graph(8)
+    calls = iter([("run_python", {"code": "n = get_neighbors(0)\nresult = [[0, a, b] for i, a in enumerate(n) "
+                                          "for b in n[i + 1:] if has_edge(a, b)]"}),
+                  ("submit_answer", {"answer": 21, "triangles": "result_1"})])
+
+    def model(messages, tools):
+        name, args = next(calls)
+        return {"role": "assistant", "content": "", "tool_calls": [
+            {"id": name, "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}]}
+
+    from functools import partial
+    from harness.verifiers import verify_triangle_count
+    result = run_agent("?", big, answer_type="number_with_triangles", call_model=model,
+                       verify=partial(verify_triangle_count, big, {"node": 0}), config=AgentConfig(python="tools"))
+    assert json.loads(result.messages[3]["content"])["result_handle"] == "result_1"
+    assert result.status == "submitted" and len(result.evidence["triangles"]) == 21

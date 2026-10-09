@@ -23,7 +23,12 @@
 #       triangles, answer types number_with_components / number_with_triangles); the `any` answer type for questions
 #       the router can't place; MORE_TOOLS (the more_tools escape hatch, only with --tools hybrid / agent). Tool
 #       exposure by task (--tools task) changes which tools are shown, not their text.
-PROMPT_VERSION = "v8"
+#   v9: per-step output cap (models.OLLAMA_NUM_PREDICT) with its own nudge THOUGHT_TOO_LONG; a run_python list
+#       result of 20+ numbers also gets a handle (result_handle) so it can be submitted without copying; run_python's
+#       description says the tool functions need no import; skills (SKILL_PREFIX + harness/skills/<task>.md), only
+#       with eval.runner --skills. Rejections of missing / partial count evidence say how to send a long list by
+#       handle (verifiers.LONG_LIST_HOW).
+PROMPT_VERSION = "v9"
 
 SYSTEM_PROMPT = (
     "You answer questions about a graph G. You cannot see G directly; use the tools to inspect it. "
@@ -41,6 +46,13 @@ NUDGE = (
 EMPTY_REPLY = (
     "Your reply was empty: no text and no tool call. If you already know the answer, call submit_answer now. "
     "Otherwise make your next tool call, or call cannot_answer if the question cannot be answered."
+)
+
+# Sent when a reply was cut off by the output cap (models.OLLAMA_NUM_PREDICT): the model reasoned for too long,
+# usually trying to work the answer out in its head instead of with the tools.
+THOUGHT_TOO_LONG = (
+    "Your reply was cut off: you thought for too long without calling a tool. Don't work it out in your head: "
+    "make one tool call or one run_python call now, or call submit_answer if you already know the answer."
 )
 
 # Compaction (harness/compaction.py): what an older tool result / older code becomes when the context gets full.
@@ -90,6 +102,9 @@ ROUTER_PROMPT = (
     + "\n- unknown: anything else, or a question that matches none of these exactly. "
     "If you are not sure, say so with a low confidence."
 )
+
+# Skills (harness/skills/): a task's playbook follows the system prompt under this heading.
+SKILL_PREFIX = "\n\nHow to answer this kind of question:\n"
 
 # The more_tools escape hatch (AgentConfig.more_tools): the agent sees one task's tools, or none, and asks for more.
 MORE_TOOLS_DESCRIPTION = ("Add more graph tools to your tool list, one category at a time: {categories}. "

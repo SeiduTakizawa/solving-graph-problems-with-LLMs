@@ -30,6 +30,7 @@ from eval.routing import PARAPHRASES, same_params
 from harness.loop import AgentConfig, RunResult, run_agent
 from harness.models import DEFAULT_MODEL
 from harness.router import UNKNOWN, Route, check_route, llm_route, regex_route
+from harness.skills import load_skill
 from harness.tasks import TASKS
 from harness.tools.graph_tools import DEFAULT_TOOLS, TOOLS
 from harness.trace import Trace
@@ -64,7 +65,8 @@ def run(args) -> Path:
                 verify = (partial(routed.verify, graph, route.params)
                           if routed and routed.verify and not args.no_verify else None)
                 answer_type = routed.answer_type if routed else "any"
-                config = replace(base, **tool_exposure(args, routed))
+                config = replace(base, **tool_exposure(args, routed),
+                                 skill=load_skill(routed.name) if routed and args.skills else None)
 
                 trace = Trace(out_dir / "traces.jsonl")
                 try:
@@ -83,7 +85,7 @@ def run(args) -> Path:
                     "evidence": result.evidence, "correct": correct,
                     "status": result.status, "rescued": result.rescued, "rejected": result.rejected,
                     "compactions": result.compactions,
-                    "router": args.router, "tools_mode": args.tools, "phrasing": args.phrasing, "routed_task": route.task,
+                    "router": args.router, "tools_mode": args.tools, "phrasing": args.phrasing, "skill": config.skill is not None, "routed_task": route.task,
                     "routed_params": route.params, "route_reason": route.reason, "answer_type_used": answer_type,
                     "route_right": route.task == task.name and same_params(task.name, params, route.params),
                     "graph_tools_offered": None if config.graph_tools is None else list(config.graph_tools),
@@ -200,6 +202,8 @@ if __name__ == "__main__":
     parser.add_argument("--tools", default="all", choices=["all", "task", "hybrid", "agent"],
                         help="tool exposure: all default tools, the routed task's tools, those + more_tools, "
                              "or only more_tools (M4 ablation)")
+    parser.add_argument("--skills", action="store_true",
+                        help="add the routed task's playbook (harness/skills/<task>.md) to the system prompt")
     parser.add_argument("--name", default=None, help="results folder name (default: <task>_<size>_<split>_<time>)")
     parser.add_argument("--summary-only", action="store_true", help="only summarize an existing --name")
     args = parser.parse_args()
