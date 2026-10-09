@@ -177,3 +177,61 @@ def verify_path_via(graph: nx.Graph, params: dict, answer: list[int]) -> str | N
     if length > best:
         return f"This route is valid but not the shortest: it takes {length} steps, a route with {best} exists."
     return None
+
+
+# Counts with evidence (v8): the answer comes with what was counted. Each listed item is checked, and the count
+# must match the list, so an overcount or an invented item is caught. A missed item is not (finding it would mean
+# solving the question again), like verify_neighbors.
+
+def verify_components_count(graph: nx.Graph, params: dict, answer: int, components: list | None = None) -> str | None:
+    """The components must split G's nodes (each node exactly once), with no edge between two of them, and there
+    must be `answer` of them. No edge between them means no real component was split in two: an overcount is
+    caught. Two components listed as one (an undercount) is not checked."""
+    if not components:
+        return "Also send the components you counted, one list of nodes per component, in the components field."
+    if not isinstance(components, list) or not all(isinstance(c, list) and c for c in components):
+        return "components must be a list of non-empty lists of nodes."
+    if len(components) != answer:
+        return f"You answered {answer} but listed {len(components)} components."
+    where = {}
+    for i, component in enumerate(components):
+        for node in component:
+            if node not in graph:
+                return f"Node {node} is not in G."
+            if node in where:
+                return f"Node {node} is listed in more than one component (or twice)."
+            where[node] = i
+    if len(where) != graph.number_of_nodes():
+        missing = next(n for n in graph.nodes if n not in where)
+        return f"Every node must be in a component: node {missing} is missing."
+    for u, v in graph.edges:
+        if where[u] != where[v]:
+            return f"{u}-{v} is an edge, so {u} and {v} are in the same component."
+    return None
+
+
+def verify_triangle_count(graph: nx.Graph, params: dict, answer: int, triangles: list | None = None) -> str | None:
+    """Every listed triangle must include params["node"], be a real triangle of G, and be listed once; there must
+    be `answer` of them. A missed triangle is not checked."""
+    node = params["node"]
+    if not triangles:  # none listed: fine for a count of 0
+        return None if answer == 0 else "Also send the triangles you counted, each as its three nodes, in the triangles field."
+    if not isinstance(triangles, list) or not all(isinstance(t, list) for t in triangles):
+        return "triangles must be a list of [a, b, c] node lists."
+    if len(triangles) != answer:
+        return f"You answered {answer} but listed {len(triangles)} triangles."
+    seen = set()
+    for triangle in triangles:
+        nodes = frozenset(triangle)
+        if len(triangle) != 3 or len(nodes) != 3:
+            return f"{brief(triangle)} is not three different nodes."
+        if node not in nodes:
+            return f"{brief(triangle)} does not include node {node}."
+        a, b, c = triangle
+        for u, v in ((a, b), (b, c), (a, c)):
+            if not graph.has_edge(u, v):
+                return f"{brief(triangle)} is not a triangle: {u}-{v} is not an edge in G."
+        if nodes in seen:
+            return f"The triangle {brief(sorted(nodes))} is listed twice."
+        seen.add(nodes)
+    return None

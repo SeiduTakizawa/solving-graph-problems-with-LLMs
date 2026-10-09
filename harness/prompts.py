@@ -19,7 +19,11 @@
 #       graph_info() returns; a redefined tool function is restored with a note (sandbox/runner.py).
 #   v7: compaction (harness/compaction.py): near the context limit, older tool results and run_python code are
 #       shortened with SHORTENED_RESULT / SHORTENED_CODE. Runs that never get near the limit see the same text as v6.
-PROMPT_VERSION = "v7"
+#   v8: M4. connected_components_count and triangle_count answers come with evidence (the components / the
+#       triangles, answer types number_with_components / number_with_triangles); the `any` answer type for questions
+#       the router can't place; MORE_TOOLS (the more_tools escape hatch, only with --tools hybrid / agent). Tool
+#       exposure by task (--tools task) changes which tools are shown, not their text.
+PROMPT_VERSION = "v8"
 
 SYSTEM_PROMPT = (
     "You answer questions about a graph G. You cannot see G directly; use the tools to inspect it. "
@@ -58,3 +62,35 @@ CODE_HINT = (
     "that calls the tool functions in a loop and puts the answer in `result`: it is faster and avoids mistakes "
     "in long lists. You can combine both: a tool call to find the candidates, then code to check them all."
 )
+
+# Router (harness/router.py): the system prompt of the LLM router, a menu of the tasks. Not part of the agent's
+# prompt, so PROMPT_VERSION doesn't change with it; router runs log their own ROUTER_VERSION.
+ROUTER_VERSION = "r3"  # r2: optional fields as plain integers, confidence second (r1: 44 format misses)
+# r3: confidence optional, a node pair in the other pair's fields accepted (r2: 17 missing confidences)
+ROUTER_TASKS = {
+    "node_count": "how many nodes G has",
+    "edge_count": "how many edges G has",
+    "node_degree": "how many neighbors (edges) one node has: a number",
+    "connected_nodes": "which nodes are the neighbors of one node: a list",
+    "edge_existence": "whether two nodes are directly connected by an edge",
+    "connectivity": "whether two nodes are connected by any path (possibly through other nodes)",
+    "connected_components_count": "how many connected components (separate pieces) G has",
+    "cycle_check": "whether G contains a cycle",
+    "shortest_path": "a shortest path (route) between two nodes",
+    "mst": "a minimum spanning tree (or forest) of G",
+    "shortest_path_via": "a shortest route from one node to another that must pass through a third node",
+    "hop_max_degree": "among the nodes within k hops of a node, the one with the highest degree",
+    "common_neighbors_max": "the node sharing the most neighbors with a given node",
+    "triangle_count": "how many triangles include a node",
+}
+ROUTER_PROMPT = (
+    "You route questions about a graph G to the task that answers them. Call the `route` tool once with the "
+    "task and the node ids the question mentions, in the right fields. Tasks:\n"
+    + "\n".join(f"- {name}: {text}" for name, text in ROUTER_TASKS.items())
+    + "\n- unknown: anything else, or a question that matches none of these exactly. "
+    "If you are not sure, say so with a low confidence."
+)
+
+# The more_tools escape hatch (AgentConfig.more_tools): the agent sees one task's tools, or none, and asks for more.
+MORE_TOOLS_DESCRIPTION = ("Add more graph tools to your tool list, one category at a time: {categories}. "
+                          "Use it when the tools you have are not enough.")

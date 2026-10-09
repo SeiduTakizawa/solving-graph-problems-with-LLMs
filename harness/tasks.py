@@ -6,8 +6,8 @@ verifier that checks it. Ground truth and grading live in eval/tasks.py and neve
 from dataclasses import dataclass
 from typing import Callable
 
-from harness.verifiers import (verify_connectivity, verify_cycle, verify_mst, verify_neighbors, verify_path_via,
-                               verify_shortest_path)
+from harness.verifiers import (verify_components_count, verify_connectivity, verify_cycle, verify_mst,
+                               verify_neighbors, verify_path_via, verify_shortest_path, verify_triangle_count)
 
 
 @dataclass(frozen=True)
@@ -16,45 +16,51 @@ class Task:
     question: str  # template, filled in with the task's params, e.g. "What is the degree of node {node}?"
     answer_type: str  # "number", "yes_no", "node_list", "edge_list", ... (see harness/answers.py)
     verify: Callable | None = None  # verify(graph, params, answer, **evidence) -> error message or None
+    # The task's tool family (principle 6): what the agent is shown once the router has picked this task
+    # (eval.runner --tools task / hybrid). Includes every tool its expected calls name (eval/tasks.py).
+    tools: tuple[str, ...] = ()
 
     def make_question(self, params: dict) -> str:
         return self.question.format(**params)
 
 
 TASKS = {task.name: task for task in [
-    Task("node_count", "How many nodes does G have?", "number"),
-    Task("edge_count", "How many edges does G have?", "number"),
-    Task("node_degree", "What is the degree of node {node}?", "number"),
+    Task("node_count", "How many nodes does G have?", "number", tools=("graph_info",)),
+    Task("edge_count", "How many edges does G have?", "number", tools=("graph_info",)),
+    Task("node_degree", "What is the degree of node {node}?", "number", tools=("degree", "get_neighbors")),
     Task("connected_nodes", "Which nodes are the neighbors of node {node}?", "node_list",
-         verify=verify_neighbors),
-    Task("edge_existence", "Is there an edge between nodes {u} and {v}?", "yes_no"),
+         verify=verify_neighbors, tools=("get_neighbors",)),
+    Task("edge_existence", "Is there an edge between nodes {u} and {v}?", "yes_no", tools=("has_edge", "get_neighbors")),
     Task("connectivity", "Is there a path between nodes {source} and {target}?", "yes_no_with_path",
-         verify=verify_connectivity),
-    Task("connected_components_count", "How many connected components does G have?", "number"),
-    Task("cycle_check", "Is there a cycle in G?", "yes_no_with_cycle", verify=verify_cycle),
+         verify=verify_connectivity, tools=("has_path", "shortest_path", "connected_components")),
+    # v8: the count comes with the components as evidence (verify_components_count).
+    Task("connected_components_count", "How many connected components does G have?", "number_with_components",
+         verify=verify_components_count, tools=("connected_components",)),
+    Task("cycle_check", "Is there a cycle in G?", "yes_no_with_cycle", verify=verify_cycle, tools=("has_cycle",)),
     Task("shortest_path",
          "What is a shortest path from node {source} to node {target}? Answer with the list of nodes on the path.",
-         "node_list", verify=verify_shortest_path),
+         "node_list", verify=verify_shortest_path, tools=("shortest_path", "distances_from")),
     # The dataset's graphs are unweighted and some are disconnected, so any spanning forest is a correct answer.
     Task("mst",
          "What is a minimum spanning tree of G? If G is not connected, give a minimum spanning forest "
          "(one tree per connected component). Answer with the list of edges.",
-         "edge_list", verify=verify_mst),
+         "edge_list", verify=verify_mst, tools=("minimum_spanning_tree",)),
     # Multi-step: no single tool answers it. Generated questions (eval/tasks.py), not from the dataset.
     Task("shortest_path_via",
          "What is the shortest route from node {source} to node {target} if it must pass through node {via}? "
          "Answer with the list of nodes on the route, in order.",
-         "node_list", verify=verify_path_via),
+         "node_list", verify=verify_path_via, tools=("shortest_path", "distances_from")),
     # "Combine" family: a tool finds the candidates, then many checks follow (a degree per candidate, the neighbors
     # of every node, has_edge for every pair of neighbors). Direct tools need dozens of calls; one run_python loop
     # over the tool functions does it in one step. Numbers, so unverified by design (checking = recomputing).
     Task("hop_max_degree",
          "Among the nodes at distance at most {k} from node {node} (not counting node {node} itself), which one "
-         "has the highest degree? If several are tied, answer with the smallest node id.", "number"),
+         "has the highest degree? If several are tied, answer with the smallest node id.", "number",
+         tools=("neighborhood", "distances_from", "get_neighbors", "degree")),
     Task("common_neighbors_max",
          "Which node, other than node {node}, has the most neighbors in common with node {node}? If several are "
-         "tied, answer with the smallest node id.", "number"),
+         "tied, answer with the smallest node id.", "number", tools=("get_neighbors", "neighborhood")),
     Task("triangle_count",
          "How many triangles include node {node}? A triangle is three nodes that are all connected to each other.",
-         "number"),
+         "number_with_triangles", verify=verify_triangle_count, tools=("get_neighbors", "has_edge")),
 ]}

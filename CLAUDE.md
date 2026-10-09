@@ -114,6 +114,12 @@ docs/
   output + confidence; candidate for the classification part only, not parameters; cloud API, new
   dependency), embeddings (`nomic-embed-text`), regex baseline. Low confidence → no verifier
   ("unverified") or ask the user, never a guessed verifier. Jev is a router candidate, never a verifier.
+  Tool exposure ablation (decided 2026-10-09): compare (1) all tools, (2) router picks the family's tools,
+  (3) agent picks: sees tool categories and calls `load_tools(category)`, (4) hybrid: router picks plus a
+  `more_tools(category)` escape hatch (planned default). Measure accuracy, tokens/question, tool precision (process
+  metrics) and escape-hatch use. Today all 13 default tools cost ~900 tokens per step (first call 1.3–1.7k tokens vs
+  ~20k for Claude Code); the saving grows with the tool count. Caveats: an extra `load_tools` step resends the
+  conversation, and changing the tool list mid-run breaks Ollama's prefix cache (`read_result` already does this).
 - **M4.5** Interactive CLI on top of the router: load any graph file, ask questions in plain English in a loop,
   show tool calls and whether the answer was verified. Later: follow-up questions that reuse earlier answers.
   For debugging and the thesis demo.
@@ -159,6 +165,14 @@ docs/
 - **GDS Agent review** (2026-10-08): `docs/gds_agent_findings.md`: comparison, their public benchmark with frontier
   results and costs (a ready-made baseline), ranked ideas, and the tools they have that we don't (with evidence and
   verifier notes). Item 1 (process metrics: `eval/analysis/process.py`, report `--process`) is done.
+- **M4 started** (2026-10-09): router (`harness/router.py`; written by Claude at the author's request: regex
+  baseline + LLM router, `qwen3.5:9b`, thinking off, via a `route` tool call since Ollama ignores `format` with
+  thinking off). Routing eval `eval/routing.py` on hand-written paraphrases (`data/routing/paraphrases.json`): dev
+  regex 60%, LLM 94% (r3, after schema fixes seen on dev; test phrasings untouched). Wired into the runner
+  (`--router oracle|regex|llm`, `--phrasing paraphrase`), tool exposure (`--tools all|task|hybrid|agent`, task
+  families in `harness/tasks.py`, `more_tools` escape hatch), `any` answer type for unknown routes, count verifiers
+  with evidence (components, triangles). `PROMPT_VERSION` **v8**. Decisions, results, Jev: `docs/router.md`.
+  Still M4: skills (ported pseudocodes), repeated runs of the exposure ablation, a better confidence signal.
 - Ideas noted: questions for the multi-step family (farthest node, k-hop counts) from the M6 generator; Brig
   (brig.sh, local microVM sandbox) as a candidate for sandboxing the Claude Code / Codex baselines in M6.
 - Machines: GPU machine (RTX 5070) for real runs; MacBook Air M4 has Ollama + qwen3:8b but is ~4.5× slower

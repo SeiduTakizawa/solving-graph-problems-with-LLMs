@@ -1,0 +1,10 @@
+{
+  "questions": 94,
+  "accuracy": 0.5319148936170213,
+  "in_scope_right": 0.47619047619047616,
+  "safe_miss": 44,
+  "wrong": 0,
+  "false_known": 0,
+  "latency_s_median": 0.9975,
+  "tokens_per_route": 953.5744680851063
+}

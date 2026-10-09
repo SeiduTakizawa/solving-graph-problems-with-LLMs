@@ -16,6 +16,10 @@ ANSWER_MODELS = {
     "edge_list": list[Edge],
     "yes_no_with_path": StrictBool,
     "yes_no_with_cycle": StrictBool,
+    "number_with_components": StrictInt,
+    "number_with_triangles": StrictInt,
+    # For a question the router couldn't place (harness/router.py): any of the shapes above, and no verifier.
+    "any": StrictInt | StrictBool | list[StrictInt] | list[Edge],
 }
 _ADAPTERS = {name: TypeAdapter(t) for name, t in ANSWER_MODELS.items()}
 
@@ -24,6 +28,8 @@ def _schema(answer_type: str) -> dict:
     """The answer's JSON schema. Pydantic sorts the keys alphabetically; they are put back in the order the
     hand-written schemas had, so the text the model sees is byte-identical to earlier runs."""
     schema = _ADAPTERS[answer_type].json_schema()
+    if "anyOf" in schema:  # "any": its options, each in the short form
+        return {"anyOf": [{"type": "integer"}, {"type": "boolean"}, _schema("node_list"), _schema("edge_list")]}
     if "items" in schema and "items" in schema["items"]:  # edge_list: a list of [u, v] pairs
         schema["items"] = {"type": "array", "items": schema["items"]["items"],
                            "minItems": schema["items"]["minItems"], "maxItems": schema["items"]["maxItems"]}
@@ -46,6 +52,19 @@ ANSWER_TYPES = {
                           "evidence": {"cycle": {"type": "array", "items": {"type": "integer"},
                                                  "description": "If your answer is true: the nodes of one cycle "
                                                                 "in order, e.g. [0, 1, 2] for the cycle 0-1-2-0."}}},
+    # Counts that come with what was counted (v8), so a verifier can check them without counting again.
+    "number_with_components": {"schema": _schema("number_with_components"), "description": "a whole number",
+                               "evidence": {"components": {"type": "array", "items": {"type": "array",
+                                                                                      "items": {"type": "integer"}},
+                                                           "description": "The components you counted: one list of "
+                                                                          "nodes per component."}}},
+    "number_with_triangles": {"schema": _schema("number_with_triangles"), "description": "a whole number",
+                              "evidence": {"triangles": {"type": "array", "items": {"type": "array",
+                                                                                    "items": {"type": "integer"}},
+                                                         "description": "The triangles you counted, each as its three "
+                                                                        "nodes, e.g. [[4, 1, 7], [4, 2, 9]]."}}},
+    "any": {"schema": _schema("any"),
+            "description": "a whole number, true or false, a list of node ids, or a list of edges"},
 }
 
 ENDING_TOOL_NAMES = ["submit_answer", "cannot_answer"]

@@ -410,6 +410,15 @@ TOOLS = {
 
 DEFAULT_TOOLS = tuple(name for name, tool in TOOLS.items() if tool.default)
 
+# Groups for the more_tools escape hatch (M4 tool exposure): the agent asks for a category, not a single tool.
+# Every tool is in exactly one category (tests/test_tool_exposure.py checks it).
+TOOL_CATEGORIES = {
+    "basics": ("graph_info", "get_neighbors", "degree", "has_edge"),
+    "paths": ("shortest_path", "has_path", "distances_from", "neighborhood"),
+    "structure": ("connected_components", "has_cycle", "minimum_spanning_tree", "is_bipartite", "topological_sort",
+                  "articulation_points", "bridges", "k_core", "triangles", "greedy_coloring"),
+}
+
 
 def json_schema(model: type[BaseModel]) -> dict:
     """The model's JSON schema, trimmed to what the LLM needs: no titles (they only cost tokens) and no

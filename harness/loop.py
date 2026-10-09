@@ -10,9 +10,10 @@ from harness.answers import CANNOT_ANSWER, check_answer, evidence_fields, make_s
 from harness.brief import brief
 from harness.compaction import compact, size
 from harness.parsing import looks_like_text_tool_call, parse_text_tool_call
-from harness.prompts import CODE_HINT, EMPTY_REPLY, FORMAT_ERROR, NUDGE, PROMPT_VERSION, SYSTEM_PROMPT
+from harness.prompts import (CODE_HINT, EMPTY_REPLY, FORMAT_ERROR, MORE_TOOLS_DESCRIPTION, NUDGE, PROMPT_VERSION,
+                             SYSTEM_PROMPT)
 from harness.sandbox import run_python_tool, shown_reply
-from harness.tools.graph_tools import DEFAULT_TOOLS, GRAPH_TOOLS, run_tool
+from harness.tools.graph_tools import DEFAULT_TOOLS, GRAPH_TOOLS, TOOL_CATEGORIES, run_tool
 from harness.tools.handles import HANDLE_LIMIT, READ_RESULT, HandleStore
 from harness.trace import Trace
 
@@ -26,6 +27,7 @@ class AgentConfig:
     rescue: bool = True  # run tool calls written as text (lenient); False = only a FORMAT_ERROR (strict)
     graph_tools: tuple[str, ...] | None = None  # names of the graph tools to offer; None = the default ones
     code_tools: tuple[str, ...] | None = None  # tool functions inside run_python; None = default + offered ones
+    more_tools: bool = False  # offer more_tools(category): the agent adds a category of tools (M4 tool exposure)
     handle_limit: int | None = HANDLE_LIMIT  # results with more numbers than this become handles; None = off
     python: str | None = None  # run_python: None = off, "tools" (code calls our tools) or "networkx" (also G, nx)
     code_hint: bool = False  # add CODE_HINT (when to combine tools and code) to the system prompt; needs python
@@ -67,6 +69,15 @@ def reply_signature(reply: dict) -> tuple:
     return (reply.get("content") or "").strip(), calls
 
 
+def more_tools_tool(categories: dict[str, list[str]]) -> dict:
+    """more_tools(category): the categories it can still add, each with its tool names (so the model knows)."""
+    listed = "; ".join(f"{name} ({', '.join(tools)})" for name, tools in categories.items())
+    return {"type": "function", "function": {
+        "name": "more_tools", "description": MORE_TOOLS_DESCRIPTION.format(categories=listed),
+        "parameters": {"type": "object", "properties": {"category": {"type": "string", "enum": list(categories)}},
+                       "required": ["category"]}}}
+
+
 def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verify=None,
               config: AgentConfig = AgentConfig(), call_model=None, trace: Trace | None = None) -> RunResult:
     """Run the agent loop until the model submits, gives up, repeats itself, or runs out of steps.
@@ -106,6 +117,16 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
         graph_tools = graph_tools + [run_python_tool(config.python, extra=tuple(t for t in code_tools
                                                                                if t not in DEFAULT_TOOLS))]
         offered.add("run_python")
+    # more_tools: what it can still add, per category: the default tools and any opt-in tool asked for.
+    pool = set(DEFAULT_TOOLS) | set(wanted)
+
+    def addable() -> dict[str, list[str]]:
+        left = {cat: [t for t in names if t in pool and t not in offered] for cat, names in TOOL_CATEGORIES.items()}
+        return {cat: names for cat, names in left.items() if names}
+
+    if config.more_tools and addable():
+        graph_tools = graph_tools + [more_tools_tool(addable())]
+        offered.add("more_tools")
     submit_tool = make_submit_answer(answer_type)
     tools = graph_tools + [submit_tool, CANNOT_ANSWER]
     log("run_start", question=question, answer_type=answer_type, verified=verify is not None,
@@ -176,6 +197,26 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
                     result = {"error": f"Unknown tool {name}. Available tools: {sorted(offered)}."}
                 elif name == "read_result":
                     result = store.read(args)
+                elif name == "more_tools":
+                    left = addable()
+                    category = args.get("category")
+                    if category not in left:
+                        result = {"error": f"Unknown or used-up category {category!r}. "
+                                           f"Categories you can still add: {sorted(left) or 'none'}."}
+                    else:
+                        new = left[category]
+                        schemas = [t for t in GRAPH_TOOLS if t["function"]["name"] in new]
+                        at = next(i for i, t in enumerate(tools) if t["function"]["name"] not in pool)  # after graph tools
+                        tools[at:at] = schemas
+                        offered.update(new)
+                        index = next(i for i, t in enumerate(tools) if t["function"]["name"] == "more_tools")
+                        if addable():  # its description lists only what is left
+                            tools[index] = more_tools_tool(addable())
+                        else:
+                            del tools[index]
+                            offered.discard("more_tools")
+                        result = {"added": new}
+                        log("tools_added", step=step, category=category, tools=new)
                 elif name == "run_python":
                     if not isinstance(args.get("code"), str):
                         result = {"error": "run_python needs a `code` argument with the Python code as a string."}
@@ -196,7 +237,7 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
                         # read_result is offered from the first handle on, not before: on graphs where nothing is
                         # ever big (the whole current dataset) the tool list stays exactly as it was.
                         if store.values and "read_result" not in offered:
-                            tools.insert(len(graph_tools), READ_RESULT)
+                            tools.insert(tools.index(submit_tool), READ_RESULT)
                             offered.add("read_result")
                             # ...and submit_answer starts accepting handles (its schema said "array" until now).
                             tools[tools.index(submit_tool)] = submit_tool = make_submit_answer(answer_type, handles=True)

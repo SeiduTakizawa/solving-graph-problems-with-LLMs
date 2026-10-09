@@ -1,0 +1,117 @@
+{
+  "_about": "Every phrasing must ask the same question as the template, with the same yes/no polarity (2026-10-09: 'is the graph acyclic?' was the opposite of 'is there a cycle?' and was graded wrong when answered right). Hand-written phrasings of each task's question, for the routing eval (eval/routing.py). Placeholders are the task's parameters, filled with real parameters from the dataset. dev: for building and tuning routers. test: held out, like graphs 50-99: never look at routing errors on these while tuning. 'unknown': questions no task answers; the router must say unknown.",
+  "node_count": {
+    "dev": ["How many vertices are in G?", "what's the number of nodes in the graph", "Count the nodes of G.",
+            "How big is G, in nodes?", "number of nodes?", "Tell me how many nodes this graph contains."],
+    "test": ["How many nodes are there?", "G has how many vertices?", "What is the node count of the graph?"]
+  },
+  "edge_count": {
+    "dev": ["How many edges are in G?", "what's the number of links in the graph", "Count the edges of G.",
+            "How many connections does this graph have in total?", "number of edges?", "Tell me the edge count."],
+    "test": ["How many edges does the graph have?", "G has how many links?", "Total number of edges in G, please."]
+  },
+  "node_degree": {
+    "dev": ["How many neighbors does node {node} have?", "what's the degree of vertex {node}",
+            "How many edges touch node {node}?", "degree({node})?", "How many nodes is {node} connected to?",
+            "Count the neighbours of node {node}."],
+    "test": ["How many friends does node {node} have?", "Give me the degree of {node}.",
+             "Number of edges at node {node}?"]
+  },
+  "connected_nodes": {
+    "dev": ["List the neighbors of node {node}.", "which vertices are adjacent to {node}?",
+            "Who is node {node} connected to?", "neighbours of {node}", "What nodes share an edge with node {node}?",
+            "Give me all nodes directly linked to node {node}."],
+    "test": ["What are node {node}'s neighbors?", "Which nodes are adjacent to vertex {node}?",
+             "Show the nodes next to {node}."]
+  },
+  "edge_existence": {
+    "dev": ["Are nodes {u} and {v} adjacent?", "is there an edge from {u} to {v}", "Does {u} link directly to {v}?",
+            "Are {u} and {v} directly connected?", "edge between {u} and {v}?", "Do vertices {u} and {v} share an edge?"],
+    "test": ["Is {u} a neighbor of {v}?", "Is there a direct link between node {u} and node {v}?",
+             "Does the edge ({u}, {v}) exist?"]
+  },
+  "connectivity": {
+    "dev": ["Can I get from node {source} to node {target}?", "is {target} reachable from {source}?",
+            "Are {source} and {target} in the same component?", "does any path connect {source} and {target}",
+            "Is it possible to travel from vertex {source} to vertex {target}?",
+            "Is node {source} connected to node {target}, possibly through other nodes?"],
+    "test": ["Can node {source} reach node {target}?", "Is there a route between {source} and {target}?",
+             "Are vertices {source} and {target} connected by some path?"]
+  },
+  "connected_components_count": {
+    "dev": ["How many connected components does G have?", "into how many separate pieces does the graph fall?",
+            "Count the components of G.", "number of connected components?", "How many disconnected parts are there?",
+            "How many islands does this graph have?"],
+    "test": ["How many components are in the graph?", "In how many pieces is G split?",
+             "What is the number of connected parts of G?"]
+  },
+  "cycle_check": {
+    "dev": ["Does G contain a cycle?", "does the graph have any cycle at all?", "Are there any loops in G?",
+            "is there a cycle anywhere in the graph", "Is there a closed loop of edges in G?",
+            "Can you walk from a node back to itself without reusing an edge?"],
+    "test": ["Does the graph have a cycle?", "Is there any cycle in G?", "Does G have at least one cycle?"]
+  },
+  "shortest_path": {
+    "dev": ["What is the shortest path from {source} to {target}?", "fastest route from node {source} to node {target}?",
+            "Find a minimum-hop path between {source} and {target}.", "shortest route {source} -> {target}",
+            "How do I get from {source} to {target} in as few steps as possible? List the nodes.",
+            "Give the quickest path from vertex {source} to vertex {target}."],
+    "test": ["Shortest path between node {source} and node {target}, please.",
+             "What's the fewest-edges route from {source} to {target}?", "Find a shortest path {source} to {target}."]
+  },
+  "mst": {
+    "dev": ["Find a minimum spanning tree of G.", "give me an MST of the graph", "What is a minimum spanning forest of G?",
+            "Which edges form a minimum spanning tree?", "compute the MST",
+            "Connect all nodes with as few edges as possible, without cycles: which edges?"],
+    "test": ["What is an MST of G?", "List the edges of a minimum spanning tree.", "Minimum spanning tree, please."]
+  },
+  "shortest_path_via": {
+    "dev": ["What's the shortest route from {source} to {target} that passes through {via}?",
+            "shortest path from {source} to {target} via {via}",
+            "I need to go from node {source} to node {target} and stop at node {via} on the way: shortest route?",
+            "Find the shortest path {source} -> {via} -> {target}.",
+            "Route from {source} to {target} through {via}, as short as possible.",
+            "Going through node {via}, what's the quickest way from {source} to {target}?"],
+    "test": ["Shortest route from {source} to {target} that must visit {via}?",
+             "Path from node {source} to node {target} passing node {via}, shortest one.",
+             "Via {via}: shortest path from {source} to {target}?"]
+  },
+  "hop_max_degree": {
+    "dev": ["Within {k} hops of node {node}, which node has the highest degree?",
+            "among nodes at most {k} edges from {node}, which one has the most neighbors?",
+            "Which node within distance {k} of {node} has the largest degree?",
+            "In the {k}-hop neighborhood of node {node}, what's the highest-degree node?",
+            "Look at the nodes at most {k} steps from {node}: which is best connected?",
+            "max degree node within {k} hops of {node}"],
+    "test": ["Which node no more than {k} hops from node {node} has the most edges?",
+             "Highest-degree node in the {k}-hop neighborhood of {node}?",
+             "Among the nodes reachable from {node} in at most {k} steps, which has the highest degree?"]
+  },
+  "common_neighbors_max": {
+    "dev": ["Which node shares the most neighbors with node {node}?",
+            "what node has the most common neighbors with {node}?",
+            "Find the node most similar to {node} by shared neighbors.",
+            "Which vertex has the largest neighborhood overlap with vertex {node}?",
+            "Who has the most friends in common with node {node}?",
+            "node with max common neighbours with {node}"],
+    "test": ["Which node has the most neighbors in common with node {node}?",
+             "Most shared neighbors with {node}: which node?",
+             "What other node overlaps most with node {node} in neighbors?"]
+  },
+  "triangle_count": {
+    "dev": ["How many triangles is node {node} part of?", "count the triangles through vertex {node}",
+            "In how many triangles does node {node} appear?", "number of triangles containing {node}?",
+            "How many pairs of node {node}'s neighbors are connected to each other?",
+            "How many 3-cliques include node {node}?"],
+    "test": ["How many triangles contain node {node}?", "Triangle count for vertex {node}?",
+             "Node {node} belongs to how many triangles?"]
+  },
+  "unknown": {
+    "dev": ["What is the diameter of G?", "Is G planar?", "What's the PageRank of node 3?",
+            "Find a Hamiltonian path in the graph.", "How many nodes have degree 5?", "What's the weather today?",
+            "Color the graph with as few colors as possible.", "What is the clustering coefficient of node 2?",
+            "Is G a tree?", "Which node has the highest degree in the whole graph?"],
+    "test": ["What is the radius of G?", "Find the maximum clique.", "Is the graph bipartite?",
+             "What's the average degree of G?", "Write me a poem about graphs."]
+  }
+}

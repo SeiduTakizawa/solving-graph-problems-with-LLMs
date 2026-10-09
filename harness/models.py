@@ -24,16 +24,19 @@ def context_window(model: str) -> int | None:
     return OLLAMA_NUM_CTX if model.startswith(("ollama/", "ollama_chat/")) else None
 
 
-def call_model(messages: list[dict], tools: list[dict], model: str = DEFAULT_MODEL) -> dict:
+def call_model(messages: list[dict], tools: list[dict], model: str = DEFAULT_MODEL, think: bool | None = None) -> dict:
     """Send the conversation and the available tools to the model, return its reply as a plain dict.
 
     Token counts, latency and retries go under "extra"; the loop removes it before the reply joins the
     history, so the model never sees it. latency_s includes the waits between retries: that time was spent.
+    think: turn a thinking model's reasoning on or off (Ollama only); None leaves the model's default.
     """
     start = time.time()
     errors = []
     num_ctx = context_window(model)
     options = {"num_ctx": num_ctx} if num_ctx else {}
+    if think is not None and num_ctx:
+        options["think"] = think
     for wait in (*RETRY_WAITS_S, None):
         try:
             response = litellm.completion(model=model, messages=messages, tools=tools, **options)

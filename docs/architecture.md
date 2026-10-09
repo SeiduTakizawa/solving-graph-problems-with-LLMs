@@ -180,7 +180,36 @@ needs many lookups plus a comparison, so it is where code should help.
 - **A verifier:** `verify(graph, params, answer, **evidence) -> error message or None` in `verifiers.py`, tests
   that valid answers pass and each kind of broken answer is caught.
 
+## Router and tool exposure (M4)
+
+**Router** (`router.py`, notes in `docs/router.md`). Turns a question into a `Route`: a task from the registry, its
+parameters, a confidence, and the router's own cost. `check_route` accepts it only if the task exists, the confidence
+(when given) is at least `MIN_CONFIDENCE`, the task's parameters are all there as whole numbers (a node pair in
+`u`/`v` counts as `source`/`target` and back), and every node is in G; otherwise the route is `unknown`. Routers:
+`regex_route` (patterns, the baseline) and `llm_route` (one call, thinking off, the model must call a `route` tool
+whose arguments are validated by `RouteArgs`; not Ollama's `format` option, which qwen3.5 ignores with thinking
+off). The routing eval is `eval/routing.py` on hand-written paraphrases (`data/routing/paraphrases.json`).
+
+**In a run** (`eval/runner.py --router oracle|regex|llm`). The routed task gives the answer type, the verifier
+(with the routed parameters) and, with `--tools task|hybrid`, the tools; grading still uses the dataset's task. An
+unknown route runs with all tools, the `any` answer type and no verifier. `--router oracle` (the default) takes the
+dataset's task, as before M4. `--phrasing paraphrase` asks the hand-written phrasings instead of the templates.
+
+**Tool exposure** (principle 6). Each `Task` has a tool family (`tools`), and `TOOL_CATEGORIES` groups every tool
+into basics / paths / structure. `--tools all` shows every default tool; `task` only the routed task's family;
+`hybrid` the family plus `more_tools(category)`, an escape hatch that adds a category mid-run (its description
+lists what is left; it disappears when nothing is); `agent` starts with no graph tools, only `more_tools`. Adding
+tools mid-run changes the tool list, so the server's cached prompt prefix is lost, as with `read_result`.
+
+**Counts with evidence** (v8). `connected_components_count` and `triangle_count` answers carry what was counted
+(`number_with_components`, `number_with_triangles`). `verify_components_count` checks the components split G's
+nodes with no edge between them (an overcount is caught, an undercount is not); `verify_triangle_count` checks
+every listed triangle is real, includes the node and is listed once (an invented triangle is caught, a missed one is
+not).
+
+The report's `--route` table shows how questions were routed, the router's tokens and time, and how many graph
+tools the agent started with; router tokens are included in `tokens / q`.
+
 ## Not built yet
 
-Router and skills (M4), interactive CLI (M4.5),
-escalation (M5), benchmark adapters and baselines (M6).
+Skills (M4), interactive CLI (M4.5), escalation (M5), benchmark adapters and baselines (M6).

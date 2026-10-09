@@ -153,6 +153,42 @@ PROCESS_LEGEND = ("Process metrics as in the GDS Agent benchmark (eval/analysis/
                   "that tool.")
 
 
+def total_tokens(row: dict) -> int:
+    """The agent's tokens plus the router's (M4): routing is part of answering the question."""
+    return (row["prompt_tokens"] + row["completion_tokens"] + (row.get("route_prompt_tokens") or 0)
+            + (row.get("route_completion_tokens") or 0))
+
+
+def route_use(rows: list[dict]) -> dict | None:
+    """How the questions were routed (rows without a router are oracle runs from before M4)."""
+    if not any(r.get("router") for r in rows):
+        return None
+    tools = [len(r["graph_tools_offered"]) for r in rows if r.get("graph_tools_offered") is not None]
+    return {"router": rows[0].get("router"), "tools": rows[0].get("tools_mode"),
+            "routed_right": statistics.mean(bool(r.get("route_right")) for r in rows),
+            "unknown": sum(r.get("routed_task") == "unknown" for r in rows),
+            "route_tokens": statistics.mean((r.get("route_prompt_tokens") or 0) + (r.get("route_completion_tokens") or 0)
+                                            for r in rows),
+            "route_time": statistics.mean(r.get("route_latency_s") or 0 for r in rows),
+            "start_tools": statistics.mean(tools) if tools else None}
+
+
+def route_line(label: list[str], u: dict | None) -> list:
+    if u is None:
+        return [*label, *["–"] * len(ROUTE_COLUMNS)]
+    start = "all" if u["start_tools"] is None else f"{u['start_tools']:.1f}"
+    return [*label, u["router"], u["tools"], f"{u['routed_right']:.0%}", u["unknown"], f"{u['route_tokens']:.0f}",
+            f"{u['route_time']:.2f}s", start]
+
+
+ROUTE_COLUMNS = ["router", "tools", "routed right", "unknown", "router tokens / q", "router time / q",
+                 "graph tools at start"]
+ROUTE_LEGEND = ("Routing (M4): routed right = the router's task and parameters match the dataset's (oracle: 100%); "
+                "unknown = questions it couldn't place (run with all tools and no verifier); router tokens are "
+                "included in tokens / q above; graph tools at start = how many graph tools the agent was shown "
+                "before any more_tools call (all = every default tool).")
+
+
 def summarize(rows: list[dict]) -> dict:
     """The numbers of one table line."""
     done = [r for r in rows if r.get("prompt_tokens") is not None]  # runs that crashed have no token counts
@@ -168,7 +204,7 @@ def summarize(rows: list[dict]) -> dict:
         "no_answer": sum(r["status"] != "submitted" for r in rows),
         "rejected": sum(r.get("rejected", 0) for r in rows),
         "compacted": sum(bool(r.get("compactions")) for r in rows),
-        "tokens": statistics.mean(r["prompt_tokens"] + r["completion_tokens"] for r in done) if done else 0,
+        "tokens": statistics.mean(total_tokens(r) for r in done) if done else 0,
         "time": statistics.mean(r["latency_s"] for r in done) if done else 0,
     }
 
@@ -202,7 +238,8 @@ def by_task_rows(rows: list[dict]) -> list[tuple[str, list[dict]]]:
     return sorted(tasks.items())
 
 
-def report(names: list[str], by_task: bool, code: bool = False, process: bool = False) -> tuple[str, dict]:
+def report(names: list[str], by_task: bool, code: bool = False, process: bool = False,
+           route: bool = False) -> tuple[str, dict]:
     experiments = {name: load_rows(name) for name in names}
     overview = [table_line([name, rows[0]["model"]], summarize(rows)) for name, rows in experiments.items()]
     text = ["## Experiments", "", markdown_table(["experiment", "model", *COLUMNS], overview)]
@@ -234,6 +271,15 @@ def report(names: list[str], by_task: bool, code: bool = False, process: bool = 
                      for name, rows in experiments.items() for task, task_rows in by_task_rows(rows)]
             text += ["", markdown_table(["experiment", "task", *PROCESS_COLUMNS], lines)]
         text += ["", PROCESS_LEGEND]
+
+    if route:
+        lines = [route_line([name], route_use(rows)) for name, rows in experiments.items()]
+        text += ["", "## Routing", "", markdown_table(["experiment", *ROUTE_COLUMNS], lines)]
+        if by_task:
+            lines = [route_line([name, task], route_use(task_rows))
+                     for name, rows in experiments.items() for task, task_rows in by_task_rows(rows)]
+            text += ["", markdown_table(["experiment", "task", *ROUTE_COLUMNS], lines)]
+        text += ["", ROUTE_LEGEND]
     return "\n".join(text), {name: summarize(rows) for name, rows in experiments.items()}
 
 
@@ -270,11 +316,12 @@ if __name__ == "__main__":
     parser.add_argument("--code", action="store_true", help="also show how run_python was used (reads traces.jsonl)")
     parser.add_argument("--process", action="store_true",
                         help="also show tool precision / recall / F1 and parameter match (reads traces.jsonl)")
+    parser.add_argument("--route", action="store_true", help="also show how questions were routed (M4)")
     parser.add_argument("--out", type=Path, help="also save the tables to this Markdown file")
     parser.add_argument("--plot", type=Path, help="save an accuracy-vs-tokens plot here (needs --extra viz)")
     args = parser.parse_args()
 
-    text, summaries = report(args.names, args.by_task, args.code, args.process)
+    text, summaries = report(args.names, args.by_task, args.code, args.process, args.route)
     print(text)
     if args.out:
         args.out.write_text(text + "\n", encoding="utf-8")

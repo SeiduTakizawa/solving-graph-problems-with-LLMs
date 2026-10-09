@@ -21,7 +21,7 @@ import re
 
 from eval.tasks import EXPECTED_CALLS
 
-UNSCORED = {"submit_answer", "cannot_answer", "read_result"}  # bookkeeping, like their WORKFLOW_TOOLS
+UNSCORED = {"submit_answer", "cannot_answer", "read_result", "more_tools"}  # bookkeeping, like their WORKFLOW_TOOLS
 SYMMETRIC = [("u", "v"), ("source", "target")]
 
 
