@@ -181,3 +181,30 @@ def is_route_via(graph: nx.Graph, params: dict, route: list) -> bool:
     if not all(graph.has_edge(a, b) for a, b in zip(route, route[1:])):
         return False
     return len(route) - 1 == nx.shortest_path_length(graph, s, v) + nx.shortest_path_length(graph, v, t)
+
+
+# --- Expected tool calls (process metrics, eval/analysis/process.py) ---
+# Per task, the calls an ideal run makes. Each entry is one expected call ("slot"): the tools that can make it
+# (equivalents), each with the arguments it should get, as {tool argument: question parameter}. Modelled on the
+# expected_tools / expected_parameters of the GDS Agent benchmark (github.com/brs96/gds-agent-benchmarks), so the
+# numbers are comparable. Written from the task, not from any run.
+EXPECTED_CALLS = {
+    "node_count": [{"graph_info": {}}],
+    "edge_count": [{"graph_info": {}}],
+    "node_degree": [{"degree": {"node": "node"}, "get_neighbors": {"node": "node"}}],
+    "connected_nodes": [{"get_neighbors": {"node": "node"}}],
+    "edge_existence": [{"has_edge": {"u": "u", "v": "v"}, "get_neighbors": {}}],
+    "connectivity": [{"has_path": {"source": "source", "target": "target"},
+                      "shortest_path": {"source": "source", "target": "target"}, "connected_components": {}}],
+    "connected_components_count": [{"connected_components": {}}],
+    "cycle_check": [{"has_cycle": {}}],
+    "shortest_path": [{"shortest_path": {"source": "source", "target": "target"}}],
+    "mst": [{"minimum_spanning_tree": {}}],
+    "shortest_path_via": [{"shortest_path": {"source": "source", "target": "via"}},
+                          {"shortest_path": {"source": "via", "target": "target"}}],
+    "hop_max_degree": [{"neighborhood": {"node": "node", "k": "k"}, "distances_from": {"node": "node"},
+                        "get_neighbors": {"node": "node"}},
+                       {"degree": {}}],
+    "common_neighbors_max": [{"get_neighbors": {"node": "node"}}],
+    "triangle_count": [{"get_neighbors": {"node": "node"}}],
+}

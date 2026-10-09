@@ -67,6 +67,7 @@ write one row to results.jsonl
 | `tasks.py` | Dataset loading (questions, graphs, dev/test split), generated questions for tasks not in the dataset (`GENERATED`, fixed seed per graph), reference answers, **grading** (written independently of the verifiers). |
 | `runner.py` | Runs the agent over dataset questions; one row per answer in `results.jsonl`, traces in `traces.jsonl`; progress with ETA. |
 | `analysis/report.py` | Tables (accuracy, 95% bootstrap CI, strict accuracy, checked share, tokens, time) and the accuracy-vs-tokens plot. `--code`: how `run_python` was used (questions with code, code + tools, code errors, tool calls, empty replies), read from `traces.jsonl`. |
+| `analysis/process.py` | Process metrics as in the GDS Agent benchmark: tool precision / recall / F1, parameter match, exact match, from the traces and `EXPECTED_CALLS` (per task, in `eval/tasks.py`). Report `--process`. |
 | `analysis/trajectory.py` | How a run got to its answer (multi-step tasks): ideal / extra calls / alternative path / right calls but wrong / wrong path, plus detour flags. |
 
 ## Key designs

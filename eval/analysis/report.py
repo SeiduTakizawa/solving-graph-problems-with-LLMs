@@ -4,6 +4,7 @@
     uv run python -m eval.analysis.report with_verify no_verify --by-task
     uv run python -m eval.analysis.report with_verify no_verify --out report.md --plot pareto.png
     uv run python -m eval.analysis.report combine_qwen35_B combine_qwen35_C --code   # how run_python was used
+    uv run python -m eval.analysis.report m2_large_verify --process --by-task   # right tools, right arguments?
 
 Everything is computed from the results.jsonl files that eval/runner.py writes, so every number can be
 reproduced from the logs. The tables are Markdown, so they paste straight into notes or the thesis.
@@ -14,6 +15,8 @@ import random
 import statistics
 from collections import defaultdict
 from pathlib import Path
+
+from eval.analysis.process import process_metrics
 
 RESULTS_DIR = Path(__file__).resolve().parents[2] / "results" / "harness_runs"
 
@@ -108,6 +111,48 @@ CODE_LEGEND = ("used code = questions with at least one run_python call; code + 
                "own nudge).")
 
 
+# --- Process metrics (eval/analysis/process.py): the right tools with the right arguments? ---
+
+def mean(values: list) -> float | None:
+    values = [v for v in values if v is not None]
+    return statistics.mean(values) if values else None
+
+
+def process_use(rows: list[dict], events: dict[str, list[dict]]) -> dict | None:
+    """Mean tool precision / recall / F1 / params / exact over the answers whose task has expected calls."""
+    scored = []
+    for r in rows:
+        calls = [e for e in events.get(r.get("run_id"), []) if e["event"] == "tool_call"]
+        m = process_metrics(r["task"], r.get("params") or {}, calls)
+        if m is not None:
+            scored.append((r, m))
+    if not scored:
+        return None
+    return {
+        **{key: mean([m[key] for _, m in scored]) for key in ("precision", "recall", "f1", "params")},
+        "exact": statistics.mean(m["exact"] for _, m in scored),
+        # The GDS Agent paper found tool metrics hardly predict the answer: compare F1 of right and wrong answers.
+        "f1_right": mean([m["f1"] for r, m in scored if r["correct"]]),
+        "f1_wrong": mean([m["f1"] for r, m in scored if not r["correct"]]),
+    }
+
+
+def process_line(label: list[str], p: dict | None) -> list:
+    if p is None:
+        return [*label, *["–"] * len(PROCESS_COLUMNS)]
+    show = lambda v: "–" if v is None else f"{v:.2f}"  # noqa: E731
+    return [*label, *(show(p[k]) for k in ("precision", "recall", "f1", "params")), f"{p['exact']:.0%}",
+            show(p["f1_right"]), show(p["f1_wrong"])]
+
+
+PROCESS_COLUMNS = ["tool precision", "tool recall", "tool F1", "params", "exact", "F1 if right", "F1 if wrong"]
+PROCESS_LEGEND = ("Process metrics as in the GDS Agent benchmark (eval/analysis/process.py; expected calls per task in "
+                  "eval/tasks.py): recall = expected calls made; precision = expected calls made / all tool calls "
+                  "(repeats and exploring lower it); params = right arguments in the expected calls made directly; "
+                  "exact = all expected calls and nothing else. run_python fills an expected call when its code calls "
+                  "that tool.")
+
+
 def summarize(rows: list[dict]) -> dict:
     """The numbers of one table line."""
     done = [r for r in rows if r.get("prompt_tokens") is not None]  # runs that crashed have no token counts
@@ -157,7 +202,7 @@ def by_task_rows(rows: list[dict]) -> list[tuple[str, list[dict]]]:
     return sorted(tasks.items())
 
 
-def report(names: list[str], by_task: bool, code: bool = False) -> tuple[str, dict]:
+def report(names: list[str], by_task: bool, code: bool = False, process: bool = False) -> tuple[str, dict]:
     experiments = {name: load_rows(name) for name in names}
     overview = [table_line([name, rows[0]["model"]], summarize(rows)) for name, rows in experiments.items()]
     text = ["## Experiments", "", markdown_table(["experiment", "model", *COLUMNS], overview)]
@@ -179,6 +224,16 @@ def report(names: list[str], by_task: bool, code: bool = False) -> tuple[str, di
                      for name, rows in experiments.items() for task, task_rows in by_task_rows(rows)]
             text += ["", markdown_table(["experiment", "task", *CODE_COLUMNS], lines)]
         text += ["", CODE_LEGEND]
+
+    if process:
+        events = {name: load_tool_calls(name) for name in names}
+        lines = [process_line([name], process_use(rows, events[name])) for name, rows in experiments.items()]
+        text += ["", "## Process", "", markdown_table(["experiment", *PROCESS_COLUMNS], lines)]
+        if by_task:
+            lines = [process_line([name, task], process_use(task_rows, events[name]))
+                     for name, rows in experiments.items() for task, task_rows in by_task_rows(rows)]
+            text += ["", markdown_table(["experiment", "task", *PROCESS_COLUMNS], lines)]
+        text += ["", PROCESS_LEGEND]
     return "\n".join(text), {name: summarize(rows) for name, rows in experiments.items()}
 
 
@@ -213,11 +268,13 @@ if __name__ == "__main__":
     parser.add_argument("names", nargs="+", help="experiment folders in results/harness_runs/")
     parser.add_argument("--by-task", action="store_true", help="also show one line per task")
     parser.add_argument("--code", action="store_true", help="also show how run_python was used (reads traces.jsonl)")
+    parser.add_argument("--process", action="store_true",
+                        help="also show tool precision / recall / F1 and parameter match (reads traces.jsonl)")
     parser.add_argument("--out", type=Path, help="also save the tables to this Markdown file")
     parser.add_argument("--plot", type=Path, help="save an accuracy-vs-tokens plot here (needs --extra viz)")
     args = parser.parse_args()
 
-    text, summaries = report(args.names, args.by_task, args.code)
+    text, summaries = report(args.names, args.by_task, args.code, args.process)
     print(text)
     if args.out:
         args.out.write_text(text + "\n", encoding="utf-8")

@@ -156,6 +156,9 @@ docs/
   package as a dependency; Docker vs OrbStack/Colima for the sandbox (no Docker on the MacBook yet).
 - **Next:** read `combine16k_*`, then M3 step 6 (close-out), the model pilot, and the M4 plan. Still open from M2: fixes A/B from the pilot (evidence wording, "G is undirected"
   prompt line); a run on small graphs was skipped (large only).
+- **GDS Agent review** (2026-10-08): `docs/gds_agent_findings.md`: comparison, their public benchmark with frontier
+  results and costs (a ready-made baseline), ranked ideas, and the tools they have that we don't (with evidence and
+  verifier notes). Item 1 (process metrics: `eval/analysis/process.py`, report `--process`) is done.
 - Ideas noted: questions for the multi-step family (farthest node, k-hop counts) from the M6 generator; Brig
   (brig.sh, local microVM sandbox) as a candidate for sandboxing the Claude Code / Codex baselines in M6.
 - Machines: GPU machine (RTX 5070) for real runs; MacBook Air M4 has Ollama + qwen3:8b but is ~4.5× slower
