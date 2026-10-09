@@ -84,6 +84,13 @@ layers by distance) and `neighborhood` (nodes within k hops), plus `read_result`
 are building blocks for multi-step questions (farthest node, k-hop counts): one call instead of dozens. New tools are
 appended, so the text of earlier tools stays the same.
 
+**Opt-in tools** (`Tool.default=False`, from the GDS Agent review): `articulation_points`, `bridges`, `k_core`,
+`triangles` (the triangles through a node) and `greedy_coloring`. `DEFAULT_TOOLS` leaves them out, so the loop, the
+MCP server and the sandbox offer exactly what they offered before unless asked (`eval.runner --with-tool bridges`,
+`mcp_server --with-tool ...`). Inside `run_python` the code gets the default tools plus the offered opt-in ones
+(`AgentConfig.code_tools`), and the description names the extra ones. Why opt-in: every offered tool changes the
+prompt, and `triangles` would answer the `triangle_count` combine task in one call.
+
 **Answers** (`answers.py`). `submit_answer` is built per answer type: `number`, `yes_no`, `node_list`,
 `edge_list`, and `yes_no_with_path` / `yes_no_with_cycle`, where a "yes" carries the path or cycle as an extra
 field (evidence) that goes to the verifier. Shape errors go back to the model.

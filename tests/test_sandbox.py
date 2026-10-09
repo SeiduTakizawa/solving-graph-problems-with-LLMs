@@ -140,3 +140,10 @@ def test_run_python_is_off_by_default():
               {"role": "assistant", "content": "", "tool_calls": [{"id": "c", "type": "function", "function": {
                   "name": "cannot_answer", "arguments": "{}"}}]})
     assert "run_python" not in seen[0]
+
+
+def test_opt_in_tools_are_only_in_code_when_offered(sandbox):
+    assert "not defined" in sandbox.run("result = triangles(4)")["error"]  # the default sandbox
+    with DockerSandbox(SMALL, tools=("degree", "triangles")) as sb:
+        assert sb.run("result = triangles(4)")["result"] == []
+        assert sb.run("result = len(k_core(1))")["error"]  # only what was asked for

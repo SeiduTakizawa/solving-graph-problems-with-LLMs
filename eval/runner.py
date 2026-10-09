@@ -22,7 +22,7 @@ from eval.tasks import SPLITS, is_correct, load_graph, load_tasks, reference_ans
 from harness.loop import AgentConfig, RunResult, run_agent
 from harness.models import DEFAULT_MODEL
 from harness.tasks import TASKS
-from harness.tools.graph_tools import TOOLS
+from harness.tools.graph_tools import DEFAULT_TOOLS, TOOLS
 from harness.trace import Trace
 
 def run(args) -> Path:
@@ -32,8 +32,11 @@ def run(args) -> Path:
     items = [item for name in task_names for item in load_tasks(name, args.size, args.split, args.n)]
     graphs = {}
     # --code-only offers no graph tool directly: run_python is the only way in (its code can still call the tools).
-    graph_tools = () if args.code_only else tuple(name for name in TOOLS if name not in args.without_tool)
-    config = AgentConfig(model=args.model, graph_tools=graph_tools, python=args.python, code_hint=args.code_hint)
+    chosen = tuple(name for name in TOOLS
+                   if (name in DEFAULT_TOOLS or name in args.with_tool) and name not in args.without_tool)
+    config = AgentConfig(model=args.model, graph_tools=() if args.code_only else chosen,
+                         code_tools=DEFAULT_TOOLS + tuple(args.with_tool) if args.code_only else None,
+                         python=args.python, code_hint=args.code_hint)
 
     total, done, started = args.runs * len(items), 0, time.time()
     with (out_dir / "results.jsonl").open("a", encoding="utf-8") as results:
@@ -59,7 +62,7 @@ def run(args) -> Path:
                 row = {
                     "run": run_no, "run_id": trace.run_id, "model": args.model, "size": args.size, "split": args.split,
                     **item, "answer_type": task.answer_type, "verified": verify is not None,
-                    "without_tools": args.without_tool, "python": args.python, "code_only": args.code_only, "code_hint": args.code_hint,
+                    "without_tools": args.without_tool, "with_tools": args.with_tool, "python": args.python, "code_only": args.code_only, "code_hint": args.code_hint,
                     "reference": reference_answer(task.name, graph, params), "answer": result.answer,
                     "evidence": result.evidence, "correct": correct,
                     "status": result.status, "rescued": result.rescued, "rejected": result.rejected,
@@ -112,6 +115,9 @@ if __name__ == "__main__":
     parser.add_argument("--without-tool", action="append", default=[], metavar="TOOL",
                         choices=list(TOOLS),
                         help="hide this graph tool from the agent (ablation); can be repeated")
+    parser.add_argument("--with-tool", action="append", default=[], metavar="TOOL",
+                        choices=[name for name in TOOLS if name not in DEFAULT_TOOLS],
+                        help="also offer this opt-in tool (e.g. bridges, k_core); can be repeated")
     parser.add_argument("--python", choices=["tools", "networkx"], default=None,
                         help="offer run_python (needs Docker): code that calls our tools, or also networkx")
     parser.add_argument("--code-hint", action="store_true",

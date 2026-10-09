@@ -12,7 +12,7 @@ from harness.compaction import compact, size
 from harness.parsing import looks_like_text_tool_call, parse_text_tool_call
 from harness.prompts import CODE_HINT, EMPTY_REPLY, FORMAT_ERROR, NUDGE, PROMPT_VERSION, SYSTEM_PROMPT
 from harness.sandbox import run_python_tool, shown_reply
-from harness.tools.graph_tools import GRAPH_TOOLS, run_tool
+from harness.tools.graph_tools import DEFAULT_TOOLS, GRAPH_TOOLS, run_tool
 from harness.tools.handles import HANDLE_LIMIT, READ_RESULT, HandleStore
 from harness.trace import Trace
 
@@ -24,7 +24,8 @@ class AgentConfig:
     max_steps: int = 10
     max_repeats: int = 3  # stop if the model sends the same reply this many times in a row
     rescue: bool = True  # run tool calls written as text (lenient); False = only a FORMAT_ERROR (strict)
-    graph_tools: tuple[str, ...] | None = None  # names of the graph tools to offer; None = all
+    graph_tools: tuple[str, ...] | None = None  # names of the graph tools to offer; None = the default ones
+    code_tools: tuple[str, ...] | None = None  # tool functions inside run_python; None = default + offered ones
     handle_limit: int | None = HANDLE_LIMIT  # results with more numbers than this become handles; None = off
     python: str | None = None  # run_python: None = off, "tools" (code calls our tools) or "networkx" (also G, nx)
     code_hint: bool = False  # add CODE_HINT (when to combine tools and code) to the system prompt; needs python
@@ -95,11 +96,15 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
         {"role": "system", "content": SYSTEM_PROMPT + (" " + CODE_HINT if config.python and config.code_hint else "")},
         {"role": "user", "content": question},
     ]
-    graph_tools = [t for t in GRAPH_TOOLS
-                   if config.graph_tools is None or t["function"]["name"] in config.graph_tools]
+    wanted = DEFAULT_TOOLS if config.graph_tools is None else config.graph_tools
+    graph_tools = [t for t in GRAPH_TOOLS if t["function"]["name"] in wanted]
     offered = {t["function"]["name"] for t in graph_tools}
+    # In code, the default tools are always there (as before), plus any opt-in tool that is offered.
+    code_tools = config.code_tools if config.code_tools is not None else (
+        DEFAULT_TOOLS + tuple(t for t in wanted if t not in DEFAULT_TOOLS))
     if config.python:
-        graph_tools = graph_tools + [run_python_tool(config.python)]
+        graph_tools = graph_tools + [run_python_tool(config.python, extra=tuple(t for t in code_tools
+                                                                               if t not in DEFAULT_TOOLS))]
         offered.add("run_python")
     submit_tool = make_submit_answer(answer_type)
     tools = graph_tools + [submit_tool, CANNOT_ANSWER]
@@ -177,7 +182,7 @@ def run_agent(question: str, graph: nx.Graph, answer_type: str = "number", verif
                     else:
                         if sandbox is None:
                             from harness.sandbox.docker import DockerSandbox  # only needed when run_python is on
-                            sandbox = DockerSandbox(graph, mode=config.python)
+                            sandbox = DockerSandbox(graph, mode=config.python, tools=code_tools)
                         result = shown_reply(sandbox.run(args["code"]))
                         if store:  # a big `result` becomes a handle, like any tool result
                             result = store.compact(result)

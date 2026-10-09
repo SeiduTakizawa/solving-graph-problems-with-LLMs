@@ -8,7 +8,7 @@ import networkx as nx
 import pytest
 from mcp import Client, StdioServerParameters
 
-from harness.tools.graph_tools import GRAPH_TOOLS, TOOLS, run_tool
+from harness.tools.graph_tools import DEFAULT_TOOLS, GRAPH_TOOLS, TOOLS, run_tool
 from harness.tools.handles import READ_RESULT
 from harness.tools.mcp_server import make_server
 
@@ -33,7 +33,7 @@ def test_tools_are_exactly_the_harness_tools():
         return (await client.list_tools()).tools
 
     tools = with_client(nx.path_graph(3), listed)
-    expected = GRAPH_TOOLS + [READ_RESULT]
+    expected = [s for s in GRAPH_TOOLS if s["function"]["name"] in DEFAULT_TOOLS] + [READ_RESULT]
     assert [t.name for t in tools] == [s["function"]["name"] for s in expected]
     for tool, schema in zip(tools, expected):
         assert tool.description == schema["function"]["description"]
@@ -53,7 +53,7 @@ def test_results_match_run_tool_on_the_dataset():
         async def call_all(client):
             return [(name, args, await client.call_tool(name, args)) for name, args in calls]
 
-        for name, args, result in with_client(graph, call_all):
+        for name, args, result in with_client(graph, call_all, tool_names=tuple(TOOLS), handle_limit=None):
             expected = run_tool(graph, name, args)
             assert text_of(result) == expected, (path, name)
             assert result.structured_content == expected
@@ -110,3 +110,16 @@ def test_server_runs_over_stdio_as_a_subprocess():
 
     names, degree = anyio.run(main)
     assert "degree" in names and degree == {"degree": 2}
+
+
+def test_opt_in_tools_are_off_unless_asked():
+    async def names(client):
+        return [t.name for t in (await client.list_tools()).tools]
+
+    assert "bridges" not in with_client(nx.path_graph(3), names)
+    assert "bridges" in with_client(nx.path_graph(3), names, tool_names=DEFAULT_TOOLS + ("bridges",))
+
+    async def call(client):
+        return await client.call_tool("bridges", {})
+
+    assert with_client(nx.path_graph(3), call).is_error  # not offered: refused, like in our loop

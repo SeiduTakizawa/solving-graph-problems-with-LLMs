@@ -18,7 +18,7 @@ import traceback
 
 import networkx as nx
 
-from harness.tools.graph_tools import TOOLS, run_tool
+from harness.tools.graph_tools import DEFAULT_TOOLS, TOOLS, run_tool
 
 STDOUT_LIMIT = 20_000  # characters kept per call; the host shortens further before the model sees it
 
@@ -50,6 +50,11 @@ def code_value(name: str, result: dict):
         "minimum_spanning_tree": "edges",
         "distances_from": "layers",
         "neighborhood": "nodes",
+        "articulation_points": "nodes",
+        "bridges": "edges",
+        "k_core": "nodes",
+        "triangles": "triangles",
+        "greedy_coloring": "classes",
     }
     if name in single_value_keys:
         return result[single_value_keys[name]]
@@ -121,9 +126,9 @@ def restore(namespace: dict, protected: dict) -> str | None:
             "Use the tool functions as they are and pick other names for your own helpers.")
 
 
-def main(graph_file: str, directed: bool, mode: str) -> None:
+def main(graph_file: str, directed: bool, mode: str, tools: tuple[str, ...] = DEFAULT_TOOLS) -> None:
     graph = nx.read_adjlist(graph_file, nodetype=int, create_using=nx.DiGraph if directed else nx.Graph)
-    protected = {name: tool_function(graph, name) for name in TOOLS}
+    protected = {name: tool_function(graph, name) for name in tools if name in TOOLS}
     if mode == "networkx":
         protected.update(G=graph, nx=nx)
     namespace = dict(protected)
@@ -145,4 +150,6 @@ def main(graph_file: str, directed: bool, mode: str) -> None:
 
 
 if __name__ == "__main__":
-    main(sys.argv[1], sys.argv[2] == "directed", sys.argv[3])
+    names = sys.argv[4] if len(sys.argv) > 4 else "default"
+    main(sys.argv[1], sys.argv[2] == "directed", sys.argv[3],
+         DEFAULT_TOOLS if names == "default" else tuple(n for n in names.split(",") if n))

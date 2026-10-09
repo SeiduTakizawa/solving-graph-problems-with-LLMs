@@ -7,9 +7,13 @@ Backends live in this package (docker.py; a WASM backend can follow for a public
 STDOUT_SHOWN = 2_000  # characters of printed output the model sees; big values belong in `result` (handles)
 
 
-def run_python_tool(mode: str) -> dict:
-    extra = (" G (the graph, a networkx graph) and nx (networkx) are also available." if mode == "networkx"
-             else " Only these functions are available: networkx cannot be imported.")
+def run_python_tool(mode: str, extra: tuple[str, ...] = ()) -> dict:
+    """extra: opt-in tools also available in code; named so the model knows (the default text stays the same)."""
+    from harness.tools.graph_tools import TOOLS
+    also = (" Also available: " + ", ".join(f"{name}({', '.join(TOOLS[name].args.model_fields)})" for name in extra)
+            + "." if extra else "")
+    extra = also + (" G (the graph, a networkx graph) and nx (networkx) are also available." if mode == "networkx"
+                    else " Only these functions are available: networkx cannot be imported.")
     return {
         "type": "function",
         "function": {

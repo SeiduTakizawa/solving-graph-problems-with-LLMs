@@ -25,17 +25,19 @@ from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
 
 from harness.brief import brief
-from harness.tools.graph_tools import GRAPH_TOOLS, TOOLS, run_tool
+from harness.tools.graph_tools import DEFAULT_TOOLS, GRAPH_TOOLS, TOOLS, run_tool
 from harness.tools.handles import HANDLE_LIMIT, READ_RESULT, HandleStore
 
 INSTRUCTIONS = ("Tools for answering questions about one graph G. You cannot see G directly; "
                 "use the tools to inspect it.")
 
 
-def make_server(graph: nx.Graph, handle_limit: int | None = HANDLE_LIMIT) -> Server:
-    """An MCP server for one graph. Nothing here talks to stdout: with stdio, stdout *is* the protocol."""
+def make_server(graph: nx.Graph, handle_limit: int | None = HANDLE_LIMIT,
+                tool_names: tuple[str, ...] = DEFAULT_TOOLS) -> Server:
+    """An MCP server for one graph. Nothing here talks to stdout: with stdio, stdout *is* the protocol.
+    tool_names: the tools it offers, the default ones like our loop (so baselines get the same tools)."""
     store = HandleStore(handle_limit) if handle_limit else None
-    schemas = GRAPH_TOOLS + ([READ_RESULT] if store else [])
+    schemas = [s for s in GRAPH_TOOLS if s["function"]["name"] in tool_names] + ([READ_RESULT] if store else [])
     tools = [types.Tool(name=s["function"]["name"], description=s["function"]["description"],
                         input_schema=s["function"]["parameters"]) for s in schemas]
 
@@ -46,7 +48,7 @@ def make_server(graph: nx.Graph, handle_limit: int | None = HANDLE_LIMIT) -> Ser
         name, args = params.name, params.arguments or {}
         if name == "read_result" and store:
             result = store.read(args)
-        elif name in TOOLS:
+        elif name in TOOLS and name in tool_names:
             try:
                 result = run_tool(graph, name, args)  # validates the arguments, never raises on bad input
             except Exception as e:  # a buggy tool must not kill the server
@@ -70,7 +72,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Serve the graph tools for one graph over MCP (stdio).")
     parser.add_argument("--graph", required=True, help="graph file (networkx adjacency list)")
     parser.add_argument("--no-handles", action="store_true", help="send big results in full (ablation)")
+    parser.add_argument("--with-tool", action="append", default=[], choices=[n for n in TOOLS if n not in DEFAULT_TOOLS],
+                        help="also offer this opt-in tool; can be repeated")
     args = parser.parse_args()
 
     graph = nx.read_adjlist(args.graph, nodetype=int)
-    anyio.run(serve_stdio, make_server(graph, handle_limit=None if args.no_handles else HANDLE_LIMIT))
+    anyio.run(serve_stdio, make_server(graph, handle_limit=None if args.no_handles else HANDLE_LIMIT,
+                                       tool_names=DEFAULT_TOOLS + tuple(args.with_tool)))

@@ -6,7 +6,7 @@ import networkx as nx
 import pytest
 
 from harness.loop import AgentConfig, run_agent
-from harness.tools.graph_tools import TOOLS, run_tool
+from harness.tools.graph_tools import DEFAULT_TOOLS, TOOLS, run_tool
 from harness.tools.handles import HANDLE_LIMIT, HandleStore, size
 from harness.verifiers import verify_mst
 
@@ -89,11 +89,14 @@ def test_resolve_leaves_other_values_alone():
 
 
 def test_the_current_dataset_never_makes_a_handle():
-    # Guarantees that earlier experiments behave exactly as before handles existed.
+    # Guarantees that earlier experiments behave exactly as before handles existed (default tools: the opt-in
+    # ones are newer, and e.g. a large graph's triangles do become a handle).
     for path in GRAPH_FILES:
         graph = nx.read_adjlist(path, nodetype=int)
         store = HandleStore()
         for name, tool in TOOLS.items():
+            if name not in DEFAULT_TOOLS:
+                continue
             fields = list(tool.args.model_fields)
             if not fields:
                 calls = [{}]

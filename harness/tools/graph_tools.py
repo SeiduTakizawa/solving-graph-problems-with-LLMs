@@ -46,9 +46,16 @@ def _k_not_a_bool(value):
     return value
 
 
+# A whole number of at least 1. Field before the validator, or the schema says "ge" instead of "minimum".
+PositiveK = Annotated[int, Field(ge=1), BeforeValidator(_k_not_a_bool)]
+
+
 class NeighborhoodArgs(NodeArgs):
-    # How many edges away, at least 1. Field before the validator, or the schema says "ge" instead of "minimum".
-    k: Annotated[int, Field(ge=1), BeforeValidator(_k_not_a_bool)]
+    k: PositiveK  # how many edges away
+
+
+class KArgs(NoArgs):
+    k: PositiveK
 
 
 def describe_nodes(graph: nx.Graph) -> str:
@@ -265,12 +272,96 @@ def neighborhood(graph: nx.Graph, node: int, k: int) -> dict:
     nodes = sorted(other for other in within if other != node)
     return {"count": len(nodes), "nodes": nodes}
 
+# Added after the GDS Agent review (docs/gds_agent_findings.md, tier 1). Each returns evidence a verifier can check
+# without solving the problem again. Opt-in (Tool.default=False): offering them changes what the model sees.
+
+def undirected_only(graph: nx.Graph, name: str) -> dict | None:
+    if graph.is_directed():
+        return {"error": f"{name} is defined here for undirected graphs only, and G is directed."}
+    return None
+
+
+def without_self_loops(graph: nx.Graph) -> nx.Graph:
+    if nx.number_of_selfloops(graph) == 0:
+        return graph
+    copy = graph.copy()
+    copy.remove_edges_from(list(nx.selfloop_edges(copy)))
+    return copy
+
+
+def articulation_points(graph: nx.Graph) -> dict:
+    """Nodes whose removal splits their connected component in two or more: single points of failure.
+
+    Return: {"count": <how many>, "nodes": [sorted]}. Checkable: remove one, count components.
+    """
+    if error := undirected_only(graph, "articulation_points"):
+        return error
+    nodes = sorted(nx.articulation_points(graph))
+    return {"count": len(nodes), "nodes": nodes}
+
+
+def bridges(graph: nx.Graph) -> dict:
+    """Edges whose removal splits their connected component in two: the edge version of articulation points.
+
+    Return: {"count": <how many>, "edges": [[u, v], ...]} with u < v, sorted.
+    """
+    if error := undirected_only(graph, "bridges"):
+        return error
+    edges = sorted([min(u, v), max(u, v)] for u, v in nx.bridges(graph))
+    return {"count": len(edges), "edges": edges}
+
+
+def k_core(graph: nx.Graph, k: int) -> dict:
+    """The k-core: the largest subgraph where every node has at least k neighbors inside it (the "dense core").
+
+    Return: {"k": k, "count": <nodes in it>, "nodes": [sorted], "max_k": <largest k with a non-empty core>}
+    Checkable: every listed node has >= k listed neighbors. Self-loops are ignored.
+    """
+    if error := undirected_only(graph, "k_core"):
+        return error
+    simple = without_self_loops(graph)
+    cores = nx.core_number(simple)
+    nodes = sorted(n for n, core in cores.items() if core >= k)
+    return {"k": k, "count": len(nodes), "nodes": nodes, "max_k": max(cores.values(), default=0)}
+
+
+def triangles(graph: nx.Graph, node: int) -> dict:
+    """Every triangle (three nodes all connected to each other) that includes `node`.
+
+    Return: {"count": <how many>, "triangles": [[node, a, b], ...]} with a < b, sorted. Checkable with has_edge.
+    """
+    if error := missing_node(graph, node):
+        return error
+    if error := undirected_only(graph, "triangles"):
+        return error
+    neighbors = sorted(set(graph.neighbors(node)) - {node})
+    found = [[node, a, b] for i, a in enumerate(neighbors) for b in neighbors[i + 1:] if graph.has_edge(a, b)]
+    return {"count": len(found), "triangles": found}
+
+
+def greedy_coloring(graph: nx.Graph) -> dict:
+    """A proper coloring: neighbors never share a color. Greedy (largest degree first), so it may use more colors
+    than the minimum; it proves an upper bound on the chromatic number, not the exact value.
+
+    Return: {"colors_used": <number>, "classes": [[nodes with color 0], [color 1], ...]}
+    Edge directions are ignored. A node with a self-loop can't be colored properly: that is an error.
+    """
+    undirected = graph.to_undirected(as_view=True) if graph.is_directed() else graph
+    if loops := sorted(n for n, _ in nx.selfloop_edges(undirected)):
+        return {"error": f"Node {loops[0]} has an edge to itself, so no proper coloring exists."}
+    colors = nx.greedy_color(undirected, strategy="largest_first")
+    classes = [[] for _ in range(max(colors.values(), default=-1) + 1)]
+    for n, color in colors.items():
+        classes[color].append(n)
+    return {"colors_used": len(classes), "classes": [sorted(c) for c in classes]}
+
 
 @dataclass(frozen=True)
 class Tool:
     function: Callable  # function(graph, **args) -> dict
     args: type[BaseModel]
     description: str  # what the model is told the tool does
+    default: bool = True  # offered unless left out; False = opt-in (runner --with-tool)
 
 
 # Every tool the agent can be offered, in the order the model sees them.
@@ -301,7 +392,23 @@ TOOLS = {
                            "nodes), plus the nodes that can't be reached."),
     "neighborhood": Tool(neighborhood, NeighborhoodArgs, "Return all nodes within k edges of a node (distance 1 to "
                                                          "k, not the node itself), and how many there are."),
+    # Opt-in (see above): not offered unless asked for, so the default tool list, and every run so far, stays the same.
+    "articulation_points": Tool(articulation_points, NoArgs,
+                                "Return the articulation points of G: nodes whose removal disconnects their "
+                                "connected component.", default=False),
+    "bridges": Tool(bridges, NoArgs, "Return the bridges of G: edges whose removal disconnects their connected "
+                                     "component.", default=False),
+    "k_core": Tool(k_core, KArgs, "Return the nodes of the k-core of G: the largest subgraph in which every node has "
+                                  "at least k neighbors, plus max_k, the largest k whose core is not empty.",
+                   default=False),
+    "triangles": Tool(triangles, NodeArgs, "Return every triangle (three nodes all connected to each other) that "
+                                           "includes a node, and how many there are.", default=False),
+    "greedy_coloring": Tool(greedy_coloring, NoArgs,
+                            "Return a proper coloring of G (neighbors never share a color), found greedily: it may "
+                            "use more colors than the minimum.", default=False),
 }
+
+DEFAULT_TOOLS = tuple(name for name, tool in TOOLS.items() if tool.default)
 
 
 def json_schema(model: type[BaseModel]) -> dict:

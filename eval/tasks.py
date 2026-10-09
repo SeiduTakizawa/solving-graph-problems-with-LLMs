@@ -206,5 +206,5 @@ EXPECTED_CALLS = {
                         "get_neighbors": {"node": "node"}},
                        {"degree": {}}],
     "common_neighbors_max": [{"get_neighbors": {"node": "node"}}],
-    "triangle_count": [{"get_neighbors": {"node": "node"}}],
+    "triangle_count": [{"get_neighbors": {"node": "node"}, "triangles": {"node": "node"}}],
 }

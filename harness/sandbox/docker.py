@@ -52,10 +52,12 @@ class SandboxError(RuntimeError):
 
 
 class DockerSandbox:
-    def __init__(self, graph: nx.Graph, mode: str = "tools", timeout_s: float = TIMEOUT_S):
+    def __init__(self, graph: nx.Graph, mode: str = "tools", timeout_s: float = TIMEOUT_S,
+                 tools: tuple[str, ...] | None = None):  # tool functions in code; None = the default ones
         if mode not in ("tools", "networkx"):
             raise ValueError(f"mode must be 'tools' or 'networkx', not {mode!r}")
         self.graph, self.mode, self.timeout_s = graph, mode, timeout_s
+        self.tools = tools
         self.docker = docker_binary()
         if not self.docker:
             raise SandboxError("Docker not found: install Docker (Linux) or OrbStack / Docker Desktop (Mac).")
@@ -85,7 +87,8 @@ class DockerSandbox:
         ], check=True, capture_output=True)
         self.process = subprocess.Popen(
             [self.docker, "exec", "-i", self.container, "python", "-m", "harness.sandbox.runner",
-             "/data/graph.adjlist", "directed" if self.graph.is_directed() else "undirected", self.mode],
+             "/data/graph.adjlist", "directed" if self.graph.is_directed() else "undirected", self.mode,
+             ",".join(self.tools) if self.tools is not None else "default"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
         if self._read_line(START_TIMEOUT_S) is None:
             self.stop()
@@ -116,7 +119,11 @@ class DockerSandbox:
         self.process.stdin.flush()
         line = self._read_line(self.timeout_s)
         if line is None:
-            dead = self.process.poll() is not None  # killed (e.g. out of memory) rather than slow
+            try:  # killed (e.g. out of memory) rather than slow; wait a moment, poll() alone can lag the closed pipe
+                self.process.wait(timeout=2)
+                dead = True
+            except subprocess.TimeoutExpired:
+                dead = False
             self.stop()
             self.state_lost = True
             reason = ("The code was stopped: it used too much memory or crashed the sandbox."

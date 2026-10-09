@@ -116,6 +116,11 @@ M6 (check when writing the adapters).
 
 ### Tier 1: add next (deterministic, evidence-producing, small)
 
+**Done (2026-10-09), opt-in:** `articulation_points`, `bridges`, `k_core(k)` (with `max_k`), `triangles(node)`,
+`greedy_coloring` (`tests/test_extra_tools.py`; offered only with `--with-tool`, see `docs/architecture.md`).
+No questions use them yet; they need question types (M6 generator or the London adapter). Still to do from this
+tier: `clustering`, `k_shortest_paths`, `similar_nodes`.
+
 | their tool | our version | evidence → verifier |
 |---|---|---|
 | `triangle_count` (with `nodes`) | `triangles(node)` listing the triangles | each listed triple is a triangle (partial: a missing one can't be seen, like `connected_nodes`) |
@@ -172,3 +177,41 @@ Neo4j plumbing (projection, sessions, `stream_*`, model catalog).
 - **`orientation`** (natural / reverse / undirected) for directed graphs, and **`relationshipWeightProperty`** on
   every weighted algorithm. Add these when graphs get direction and weights (M6).
 - **`maxDepth` / `targetNodes`** early stopping on traversals.
+
+## 8. Beyond the benchmarks: tools for real-life questions
+
+Questions people actually ask of real graphs (roads, power grids, social networks, payments, dependencies), and
+the tool that answers each with evidence a checker can use. The pattern: a real question is rarely "run algorithm
+X"; it is "what breaks if...", "what is the cheapest...", "who is connected to...". So the useful tools are
+**what-if** and **constrained** versions of the algorithms we have.
+
+| real question | domain | tool | evidence → verifier |
+|---|---|---|---|
+| Which single station / server / router failing cuts the network? | infrastructure, IT | `articulation_points`, `bridges` (done) | remove it, count components |
+| What if node X (or edge u-v) goes down: still connected? how much longer is the route? | resilience, logistics | `what_if_removed(nodes, edges)` then any tool on the copy | the changed graph is the same graph minus the listed items |
+| Shortest route that avoids X / must pass Y | navigation, routing | `shortest_path(..., avoid=[...], via=[...])` | a valid path that skips the avoided nodes (checkable) |
+| Fastest / cheapest route (weights: km, minutes, price) | roads, flights | `weighted_shortest_path` (Dijkstra) | path is real + distance labels as an optimality certificate |
+| A second and third route as a backup | navigation, networks | `k_shortest_paths` (Yen) | each path real and simple, lengths non-decreasing |
+| How much can flow from A to B (pipes, bandwidth, trucks)? | utilities, supply chain | `max_flow` + `min_cut` | flow conserves at every node, cut capacity = flow value proves it optimal |
+| Do tasks / packages have a circular dependency? an order to do them in? | builds, project plans | `topological_sort` (have), directed `has_cycle` | the order or the cycle |
+| Schedule exams / meetings so conflicts never share a slot | timetabling, register allocation | `greedy_coloring` (done) | proper-coloring check |
+| Pair people with tasks / drivers with riders | assignment, matching markets | `max_matching` (bipartite: Hopcroft–Karp) | the pairs share no node; a vertex cover of the same size proves maximum (König) |
+| Where to put k warehouses / sensors / cameras to cover everything | facility location | `dominating_set` / `vertex_cover` (approximate) | every node / edge is covered (checkable; not optimal) |
+| Cheapest cable / pipe layout connecting given sites | telecom, utilities | `steiner_tree` (approximate), `minimum_spanning_tree` (have) | it's a tree touching every site; total weight |
+| Tight groups, fraud rings, bot clusters | social, finance | `k_core` (done), `triangles` (done), later communities | every core node has ≥ k neighbors inside |
+| Money going around in a loop (A→B→C→A) | anti-money-laundering | directed cycles through a node, with amounts | the cycle is real |
+| Who is most central / influential / a bottleneck? | social, transport | `top_k_centrality(measure, k)` (PageRank, betweenness) | none cheap: unverified, `top_k` keeps the output small |
+| People you may know / products bought together | recommendations | `similar_nodes` (Jaccard), `common_neighbors` | the neighbor sets |
+| Who can reach whom within 2 hops / 30 minutes | contact tracing, delivery zones | `neighborhood` / `distances_from` (have); weighted version | distance layers |
+| Find the node called "King's Cross" | any real data | `find_node(name)` + node names in every result | an exact match from the node table |
+
+Plumbing real graphs need before most of this matters: **node names and attributes** (real graphs have names, not
+ids; see item 6 of section 6), **edge weights and direction** (every row above with "weighted" or "directed"), and
+loading common formats (CSV edge lists, GraphML). The M6 generator and the London adapter bring the first two.
+
+Best picks, by value for the thesis (each adds evidence-checkable answers, the harness's strong point):
+1. `shortest_path` with `avoid` / `via` and `what_if_removed`: real questions, cheap, fully checkable.
+2. `max_flow` + `min_cut`: the rare case where the evidence proves optimality without re-solving.
+3. `max_matching` with a König cover: same, for assignment questions.
+4. `weighted_shortest_path` with distance labels as a certificate, once graphs have weights.
+
