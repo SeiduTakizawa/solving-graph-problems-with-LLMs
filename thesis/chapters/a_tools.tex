@@ -1,0 +1,74 @@
+\chapter{Tools and Task Templates}
+\label{app:tools}
+
+Table~\ref{tab:tools} lists every graph tool with its arguments and the description the model reads, as generated
+from the tool registry in \code{harness/tools/graph_tools.py} on 9 October 2026. Default tools are offered unless left
+out; opt-in tools only when requested. Besides these, the loop offers \code{submit_answer}, \code{cannot_answer}, and,
+once a handle exists, \code{read_result(handle, offset, limit)}; \code{run_python(code)} is offered when the sandbox is
+on (Appendix~\ref{app:prompts}). Table~\ref{tab:templates} lists the task registry of \code{harness/tasks.py}.
+
+% source: harness/tools/graph_tools.py (TOOLS), generated with uv run python
+{\small
+\begin{longtable}{>{\raggedright\arraybackslash}p{4.4cm} l >{\raggedright\arraybackslash}p{8.2cm}}
+  \caption{Graph tools: signature, availability and description.}\label{tab:tools}\\
+  \toprule
+  Tool & Offered & Description (as the model reads it) \\
+  \midrule
+  \endfirsthead
+  \toprule
+  Tool & Offered & Description (as the model reads it) \\
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+    \texttt{get\_neighbors(node)} & default & Return the list of neighbors of a node in G. \\
+    \texttt{degree(node)} & default & Return the degree of a node (for a directed graph: in-degree + out-degree). \\
+    \texttt{has\_edge(u, v)} & default & Return whether there is an edge between nodes u and v in G. \\
+    \texttt{graph\_info()} & default & Return the number of nodes and edges of G, and whether it is directed. \\
+    \texttt{shortest\_path(source, target)} & default & Return a shortest path between two nodes and its length (number of edges), or reachable=false if there is no path. \\
+    \texttt{connected\_components()} & default & Return the number of connected components of G and the nodes in each one. \\
+    \texttt{has\_cycle()} & default & Return whether G contains a cycle, and the nodes of one cycle if it does. \\
+    \texttt{minimum\_spanning\_tree()} & default & Return the edges of a minimum spanning tree of G (a minimum spanning forest, one tree per connected component, if G is not connected). \\
+    \texttt{has\_path(source, target)} & default & Return whether there is a path from source to target, and a shortest such path if there is. \\
+    \texttt{is\_bipartite()} & default & Return whether G is bipartite: its two sides if it is, or an odd cycle (proof that it isn't) if not. \\
+    \texttt{topological\_sort()} & default & Return a topological order of a directed graph G, or a directed cycle if there is none. \\
+    \texttt{distances\_from(node)} & default & Return every node grouped by its distance from a node: layers[k] are the nodes k edges away on a shortest path (layers[0] is the node itself, the last layer the farthest nodes), plus the nodes that can't be reached. \\
+    \texttt{neighborhood(node, k)} & default & Return all nodes within k edges of a node (distance 1 to k, not the node itself), and how many there are. \\
+    \texttt{articulation\_points()} & opt-in & Return the articulation points of G: nodes whose removal disconnects their connected component. \\
+    \texttt{bridges()} & opt-in & Return the bridges of G: edges whose removal disconnects their connected component. \\
+    \texttt{k\_core(k)} & opt-in & Return the nodes of the k-core of G: the largest subgraph in which every node has at least k neighbors, plus max\_k, the largest k whose core is not empty. \\
+    \texttt{triangles(node)} & opt-in & Return every triangle (three nodes all connected to each other) that includes a node, and how many there are. \\
+    \texttt{greedy\_coloring()} & opt-in & Return a proper coloring of G (neighbors never share a color), found greedily: it may use more colors than the minimum. \\
+\end{longtable}
+}
+
+% source: harness/tasks.py (TASKS), generated with uv run python
+{\small
+\begin{longtable}{>{\raggedright\arraybackslash}p{3.4cm} >{\raggedright\arraybackslash}p{5.4cm} >{\raggedright\arraybackslash}p{2.2cm} >{\raggedright\arraybackslash}p{3.2cm}}
+  \caption{Task registry: question template, answer type and verifier.}\label{tab:templates}\\
+  \toprule
+  Task & Question template & Answer type & Verifier \\
+  \midrule
+  \endfirsthead
+  \toprule
+  Task & Question template & Answer type & Verifier \\
+  \midrule
+  \endhead
+  \bottomrule
+  \endfoot
+    \texttt{node\_count} & How many nodes does G have? & \texttt{number} & -- \\
+    \texttt{edge\_count} & How many edges does G have? & \texttt{number} & -- \\
+    \texttt{node\_degree} & What is the degree of node \{node\}? & \texttt{number} & -- \\
+    \texttt{connected\_nodes} & Which nodes are the neighbors of node \{node\}? & \texttt{node\_list} & \texttt{verify\_neighbors} \\
+    \texttt{edge\_existence} & Is there an edge between nodes \{u\} and \{v\}? & \texttt{yes\_no} & -- \\
+    \texttt{connectivity} & Is there a path between nodes \{source\} and \{target\}? & \texttt{yes\_no\_with\_path} & \texttt{verify\_connectivity} \\
+    \texttt{connected\_components\_count} & How many connected components does G have? & \texttt{number} & -- \\
+    \texttt{cycle\_check} & Is there a cycle in G? & \texttt{yes\_no\_with\_cycle} & \texttt{verify\_cycle} \\
+    \texttt{shortest\_path} & What is a shortest path from node \{source\} to node \{target\}? Answer with the list of nodes on the path. & \texttt{node\_list} & \texttt{verify\_shortest\_path} \\
+    \texttt{mst} & What is a minimum spanning tree of G? If G is not connected, give a minimum spanning forest (one tree per connected component). Answer with the list of edges. & \texttt{edge\_list} & \texttt{verify\_mst} \\
+    \texttt{shortest\_path\_via} & What is the shortest route from node \{source\} to node \{target\} if it must pass through node \{via\}? Answer with the list of nodes on the route, in order. & \texttt{node\_list} & \texttt{verify\_path\_via} \\
+    \texttt{hop\_max\_degree} & Among the nodes at distance at most \{k\} from node \{node\} (not counting node \{node\} itself), which one has the highest degree? If several are tied, answer with the smallest node id. & \texttt{number} & -- \\
+    \texttt{common\_neighbors\_max} & Which node, other than node \{node\}, has the most neighbors in common with node \{node\}? If several are tied, answer with the smallest node id. & \texttt{number} & -- \\
+    \texttt{triangle\_count} & How many triangles include node \{node\}? A triangle is three nodes that are all connected to each other. & \texttt{number} & -- \\
+\end{longtable}
+}

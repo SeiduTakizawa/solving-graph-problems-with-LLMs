@@ -1,0 +1,130 @@
+\chapter{Discussion and Lessons Learned}
+\label{ch:discussion}
+
+This chapter interprets the results so far and collects the lessons recorded in the project's learning log
+(\code{docs/learning_log.md}). The project is also a study in harness engineering, so the lessons are part of the
+contribution: most of them are about how small decisions in the harness change what a cheap model does.
+
+\section{What the results suggest about the research question}
+
+The research question asks whether a graph-specific harness lets a cheap model match a frontier model in a
+general-purpose harness at a fraction of the cost. The evidence so far points in that direction on simple tasks and
+is silent on hard ones.
+
+On the ten dataset problems the cheap model, with fitting tools, was as accurate as the frontier model in Claude Code
+(9 of 9 each in the preview, 270 of 270 lenient in the M2 run), while the general-purpose harness used 17--35 times
+more input tokens per question. On these tasks the outcome is decided by networkx in both systems, so the comparison
+is essentially a comparison of overhead, and the overhead of a coding harness is large. This is the cost side of the
+research question in its simplest form.
+
+The accuracy side is still open, for three reasons. The dataset is saturated: on large graphs every task is at 100\%
+lenient accuracy, so it cannot show where a cheap model falls behind. The harder tasks so far (waypoint, combine) were
+run on 3--15 questions, once, with one model at a time. And the fair comparison, in which both harnesses use the same
+model and the same tools, has not been run. The combine results do show something the dataset could not: that a cheap
+model in our harness can fail badly (2 of 15 with tools alone) and that a harness-level change (offering code with a
+strategy hint) can recover most of it (14 of 15). Whether a frontier model in a general harness would do better on the
+same tasks, and at what cost, is the M6 question.
+
+\section{Lessons on tools}
+
+\paragraph{A fitting tool beats a checker.} Three times a tool that answers the task directly (\code{has_edge},
+\code{degree}, \code{distances_from} with \code{neighborhood}) kept accuracy and cut time or tokens by roughly an order
+of magnitude. When such a tool exists, a small model stops reasoning about how to answer. A fitting tool removes an
+error instead of catching it, which is cheaper than any verifier. The design consequence is to move decisions the
+model is bad at (what ``degree'' means here, counting a 45-item list) into tools.
+
+\paragraph{Building blocks, not one-off tools.} The multi-step tools were not written for the probe questions; they
+answer a family of distance and neighborhood questions. The opposite extreme, one tool per question, would make the
+tool list grow without bound, which conflicts with showing only relevant tools.
+
+\paragraph{Tool descriptions are the model's manual, and the schema wins.} When the instructions said ``submit the
+handle'' and the schema said ``array of edges'', the model followed the schema. When \code{has_path}'s description
+promised only ``a path'', the model still used it as a shortest path, relying on a property the tool did not promise.
+Anything the model may do must be allowed by the schema, and anything it relies on should be stated in the
+description.
+
+\paragraph{Overlapping tools create ambiguity.} \code{has_path} and \code{shortest_path} overlap; the model used both
+for the same purpose. Either the overlap is documented or it is removed; per-family tool filtering (M4) reduces it.
+
+\paragraph{An interface the model knows beats a better one it has to learn.} Inside code, tool functions that returned
+our JSON dictionaries failed every question; plain values in the style of networkx worked.
+
+\paragraph{Return evidence.} A tool should return the proof of its answer (the path, the cycle, the coloring or the
+odd cycle), so a verifier can check the answer later without solving the question again. This is also the main
+argument for keeping tools when code is more accurate: a number printed by code carries no evidence.
+
+\section{Lessons on the loop and the prompt}
+
+\paragraph{The harness can cause hallucinations.} A generic nudge (``use the tools or submit'') pushed the model from
+an honest ``my tools are not enough'' into a guess. The answer schema shapes behaviour: without an honest exit, the
+model submitted 0 for a node that did not exist. \code{cannot_answer} fixed both, and introduced its own risk: it can
+become an easy way out on questions that the tools could answer. Its rate should be tracked as a metric of its own.
+
+\paragraph{Format, not reasoning, is where the small model fails now.} On the dataset, the errors left are tool calls
+written as text and evidence left out of a ``yes''. The harness turns many of these into correct answers (lenient
+mode), which is part of what makes a small model usable, and which is why both lenient and strict accuracy are
+reported. Result handles may reduce the problem on long-list tasks, since the model can submit a handle instead of
+writing out 45 nodes; this has not been measured yet.
+
+\paragraph{Facts the model needs for planning belong in the context.} The node-degree slowdown came from thinking that
+happens before any tool call: the model debated whether the graph was directed. The fact was one tool call away, but
+a tool cannot help with a question that is asked before the first call. Facts that do not give away an answer
+(directedness, yes; node count, no) belong in the prompt up front. This is the open fix B.
+
+\paragraph{Check every field before re-sending it.} The model's hidden thinking was being re-sent on every step,
+more than tripling the prompt of the second step. What goes back into the history matters as much as what goes into the prompt.
+
+\paragraph{Nothing the model reads may grow with the graph.} Result handles covered tool results, but error messages
+and repeated values still scaled with the graph (a single typo produced 59,000 characters on a 10,000-node graph). A
+happy-path test on a big graph does not exercise the error paths; every message needs the same rule.
+
+\paragraph{One hint for every task is too blunt.} The code strategy hint was decisive for qwen3.5 on the combine tasks.
+In the invalidated first round it also appeared to hurt qwen3:8b (the model guessed a dictionary key and failed on it
+repeatedly), but that round was affected by the context limit and cannot be used as evidence. Either way, different
+models need different guidance, which is the case for per-family skills (M4) and for a skill ablation (none, minimal,
+prescriptive) per family and per model. The GDS Agent's history points the other way for frontier models: its skill
+was cut from 109 lines to 22 within a week.
+
+\section{Lessons on verification}
+
+\paragraph{A verifier checks evidence; it never re-solves.} A verifier that recomputes the answer with networkx and
+compares is an oracle, and makes any comparison meaningless. This restricts what can be checked
+(Table~\ref{tab:checkable}): counts, degrees and every ``no'' are unverified. The shortest-path verifier's length check
+is a borderline case (it computes the optimal distance) and should be replaced by a certificate check.
+
+\paragraph{Code verifiers are better than a model judge, where they apply.} A verifier in code gives a precise,
+trustworthy error message (``2--5 is not an edge in G'') and costs nothing; a second model as a judge would be
+neither precise nor free. This is the same pattern coding agents use with tests and compilers.
+
+\paragraph{Verifiers bought nothing on the dataset.} Because the tools already computed the right answer, there was
+nothing to catch. Verifiers should matter where answers are assembled by the model from several results (waypoint
+routes) or produced by code, and where escalation (M5) can act on a failed check. That remains to be shown.
+
+\section{Lessons on method}
+
+\paragraph{Check the serving settings before blaming the model.} A silent 4,096-token context produced behaviour that
+looked exactly like a model weakness (going silent after finding the answer). The context window of every local run
+is now logged and reported.
+
+\paragraph{Read the failures, not only the score.} ``The model failed'' was, on inspection, ``the question was
+ambiguous'' (the waypoint wording) or ``the schema forbade the right answer'' (handles).
+
+\paragraph{One ideal sequence is the wrong yardstick for process evaluation.} A run that read the way back from an
+earlier result instead of making a second call was correct and well reasoned. Process metrics need an ``alternative
+path'' class, and judging whether each step is justified is more useful than matching one expected sequence.
+
+\paragraph{Repeated runs matter.} The same question about a missing node gave different outcomes across four runs.
+One run is not a result; the plan's three runs and bootstrap intervals are a requirement, not a refinement.
+
+\paragraph{The log is for analysis, not for plumbing.} Reading results back from the trace file made the runner
+quadratic; the code that writes the log already knows the values.
+
+\paragraph{Pin model identifiers.} The alias \code{sonnet} resolved to different model versions on different days.
+
+\section{Limitations}
+
+Beyond the limitations of the setup listed in Chapter~\ref{ch:setup}, two limitations of the approach should be
+named. First, the harness is only as good as its tools: a question type without a fitting tool falls back to many
+low-level calls or to code, and the combine results show how badly the first can go. Second, many interesting answers
+cannot be verified from evidence alone, so a large part of any benchmark will be reported as unverified, and the
+benefit of verification and escalation is limited to the tasks where evidence exists.

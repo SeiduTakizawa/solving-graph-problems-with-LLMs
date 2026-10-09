@@ -1,0 +1,384 @@
+\chapter{Implementation}
+\label{ch:impl}
+
+This chapter describes the harness as built on 9 October 2026 (milestones M0--M2 complete, M3 steps 1--5 complete).
+The description follows \code{docs/architecture.md}, which is kept up to date with the code.
+
+\section{Stack and code organisation}
+
+The harness is written in Python (3.11 or newer) and managed with \code{uv}. Model calls go through LiteLLM
+\cite{litellm}; tool arguments and answers are Pydantic models; graph algorithms come from networkx \cite{networkx};
+the MCP server uses the official \code{mcp} Python SDK \cite{mcp}; model-written code runs in Docker. Models currently
+run locally through Ollama, so there are no API keys in the loop yet; any secrets are read from a git-ignored
+\code{.env} file.
+
+\begin{table}[ht]
+  \centering
+  \small
+  \caption{Modules of the harness and the evaluation code.}
+  \label{tab:modules}
+  % source: docs/architecture.md
+  \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{4.6cm}>{\raggedright\arraybackslash}X}
+    \toprule
+    File & Job \\
+    \midrule
+    \code{harness/loop.py} & The agent loop: \code{run_agent}, \code{AgentConfig}, \code{RunResult} \\
+    \code{harness/models.py} & One LiteLLM call: tokens, latency, retries, context window \\
+    \code{harness/tools/graph_tools.py} & Graph tools, argument models, generated schemas, \code{run_tool} \\
+    \code{harness/tools/handles.py} & Result handles and \code{read_result} \\
+    \code{harness/tools/mcp_server.py} & The same tools over MCP (stdio) \\
+    \code{harness/sandbox/} & \code{run_python}: tool schema, Docker backend, in-container runner, image \\
+    \code{harness/compaction.py} & Shortening older messages near the context window \\
+    \code{harness/brief.py} & Short versions of values repeated back to the model \\
+    \code{harness/answers.py} & Answer types, \code{submit_answer}, \code{cannot_answer}, shape checks \\
+    \code{harness/verifiers.py} & Evidence-based checks of final answers \\
+    \code{harness/tasks.py} & Task registry: template, answer type, verifier \\
+    \code{harness/parsing.py} & Spotting and rescuing tool calls written as text \\
+    \code{harness/prompts.py} & All model-facing text and \code{PROMPT_VERSION} \\
+    \code{harness/trace.py} & Append-only JSONL trace \\
+    \code{eval/tasks.py} & Dataset loading, generated questions, reference answers, grading \\
+    \code{eval/runner.py} & Runs the agent over questions, writes \code{results.jsonl} and traces \\
+    \code{eval/analysis/report.py} & Accuracy, confidence intervals, tokens, time, code use \\
+    \code{eval/analysis/process.py} & Tool precision, recall, F1, parameter match \\
+    \code{eval/analysis/trajectory.py} & Classification of how a run reached its answer \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{One question, end to end}
+\label{sec:one-question}
+
+The evaluation runner loads a question and its graph, looks up the task in the harness's registry (template, answer
+type, verifier) and calls \code{run_agent}. The loop then proceeds as follows.
+
+\begin{enumerate}
+  \item The conversation starts with the system prompt and the question. The tools offered are the graph tools, plus
+        \code{submit_answer} and \code{cannot_answer}.
+  \item Up to the step limit, the model is called with the conversation and the tools.
+  \item The model's hidden thinking is removed from its reply before the reply is appended to the history, and logged
+        separately.
+  \item If the reply contains a tool call written as plain text, the harness either rescues it (parses and runs it,
+        lenient mode) or answers with a format error (strict mode). Rescues are counted and logged either way.
+  \item If the same reply (text and tool calls, ignoring call identifiers) arrives three times in a row, the run stops
+        with status \code{loop_detected}.
+  \item Each tool call is handled in turn: arguments that are not a JSON object come back as an error; a graph tool
+        is run through \code{run_tool}, which validates the arguments; large values become handles;
+        \code{read_result} pages through a handle; \code{submit_answer} resolves any handles, checks the answer's
+        shape and then runs the verifier, which either accepts the answer or sends an error back; \code{cannot_answer}
+        ends the run.
+  \item A reply with no tool call gets a nudge: a format error if it looks like a hand-written tool call, an
+        empty-reply message if it has no content at all, and a general nudge otherwise.
+  \item Every step is logged to the trace.
+\end{enumerate}
+
+The loop returns a \code{RunResult} with the answer, the status (\code{submitted}, \code{cannot_answer},
+\code{max_steps}, \code{loop_detected} or \code{context_full}), the evidence, and counters for steps, tokens, model
+latency, rescues, rejections and compactions. The runner grades the answer against the reference with
+\code{eval/tasks.py}, independently of the verifier, and writes one row to \code{results.jsonl}.
+
+\section{The agent loop}
+
+\subsection{Configuration}
+
+An \code{AgentConfig} holds the settings that stay fixed across the questions of one experiment: the model, the step
+limit (default 10), the repeat limit for loop detection (default 3), lenient or strict handling of text tool calls,
+which graph tools are offered, which tool functions are available inside code, the handle threshold (default 200
+numbers), whether and how \code{run_python} is offered (\code{None}, \code{"tools"} or \code{"networkx"}), whether
+the code strategy hint is added to the system prompt, and the compaction threshold (default 75\% of the context
+window).
+
+\subsection{Failure handling found by poking the loop}
+
+Several mechanisms in the loop came from early failures of a naive version, observed with qwen3:8b on small graphs
+(learning log, 2026-10-04):
+\begin{itemize}
+  \item Asked for the degree of a node that does not exist, the model read the tool error and then submitted 0,
+        because \code{submit_answer} only accepted an integer. The schema shaped the behaviour; the fix was an honest
+        exit, \code{cannot_answer(reason)}, logged as its own status rather than as a wrong answer.
+  \item Asked for the largest clique with no clique tool, the model first said that the tools were insufficient,
+        was nudged twice with a generic ``use the tools or submit'' message, and then guessed. The harness itself had
+        caused a hallucination; the nudge now also offers \code{cannot_answer}.
+  \item The model wrote \texttt{submit\_answer \{"answer": 0\} </tool\_call>} as plain text nine times until the step
+        limit. Feedback now distinguishes a hand-written tool call (\code{FORMAT_ERROR}) from other text
+        (\code{NUDGE}), and loop detection ends a run after three identical replies.
+\end{itemize}
+After these fixes, the clique question ended in \code{cannot_answer} at step~1, and the missing-node question in
+\code{cannot_answer} at step~2. The degree question about a missing node gave \code{cannot_answer} in two of four
+runs and 0 in the other two: improved, not solved, and a first reminder that one run is not a result.
+
+\subsection{Rescuing text tool calls}
+
+Small models sometimes write a tool call into their text instead of using the function-calling interface. The
+harness detects this (tool-call tags, or a tool name followed by a JSON object) and, in lenient mode, parses and runs
+the call. Each rescue is logged as a separate event, so that every experiment reports two accuracies: lenient (rescued
+answers count) and strict (an answer that needed a rescue counts as wrong). Prose that only mentions a tool name is not
+flagged. In the results so far this is the main source of the gap between the two accuracies
+(Chapter~\ref{ch:results}).
+
+\subsection{Thinking is not re-sent}
+
+Reasoning models such as qwen3 return their hidden thinking in a separate field of the reply. In an early version the
+loop kept that field in the history, so the thinking was sent back and re-read on every later step. Removing it before
+the reply joins the history reduced the second-step prompt of one question from 1,826 to 534 tokens. Results before
+this fix have inflated prompt tokens on steps after the first; accuracy and output tokens are unaffected.
+
+\section{Tool layer}
+
+\subsection{Tools as validated functions}
+
+Each tool is a plain function \code{tool(graph, **args) -> dict} registered once, together with a Pydantic model for
+its arguments and the description the model reads. The JSON schemas shown to the model are generated from the
+argument models, and \code{run_tool} validates incoming arguments with the same models, so the schema the model reads
+and the validation the harness runs cannot drift apart. When this was introduced, the generated schemas were checked to
+be byte-identical to the earlier hand-written ones, so earlier results remained comparable.
+
+Validation produces messages the model can act on, for example ``Bad arguments for shortest\_path: target: Field
+required'' or ``node: a node id must be an integer, not true/false''. Two details matter in practice: the string
+\code{"3"} is accepted as node 3 (before, it was looked up as a string and reported as missing), and \code{true} is
+rejected as a node identifier (Pydantic's lax integer type would have turned it into 1, so node identifiers use a
+custom type that refuses booleans). The same strictness applies to answers: in Python a boolean is an integer, so a
+number answer rejects booleans and a yes/no answer rejects 0 and 1.
+
+\subsection{The tool set}
+
+There are 13 default tools: \code{get_neighbors}, \code{degree}, \code{has_edge}, \code{graph_info},
+\code{shortest_path}, \code{connected_components}, \code{has_cycle}, \code{minimum_spanning_tree}, \code{has_path},
+\code{is_bipartite}, \code{topological_sort}, \code{distances_from} and \code{neighborhood}. Five further tools are
+opt-in, offered only when requested: \code{articulation_points}, \code{bridges}, \code{k_core}, \code{triangles} and
+\code{greedy_coloring}. They came out of the GDS Agent review and are opt-in because every offered tool changes the
+prompt, and because \code{triangles} would answer one of the combine tasks in a single call. Appendix~\ref{app:tools}
+lists all tools with their arguments and descriptions. New tools are appended, so the text of earlier tools stays the
+same.
+
+Where possible, tools return the evidence for their answer, not just the answer: \code{has_cycle} returns one cycle,
+\code{has_path} returns a shortest path, \code{is_bipartite} returns the two sides or an odd cycle (so both answers
+carry a proof), and \code{topological_sort} returns an order or a directed cycle. The odd cycle comes from the
+breadth-first coloring itself: when an edge joins two nodes of the same color, walking both up the BFS tree to their
+meeting point gives an odd cycle. When networkx signals ``nothing found'' by raising an exception (no path, no cycle),
+the tool turns it into a normal answer such as \code{reachable: false}.
+
+\subsection{Testing against networkx}
+
+Every tool is tested against networkx on all 300 dataset graphs, and the tools without dataset questions (bipartite,
+topological sort) also on random graphs, since only 7 small dataset graphs are bipartite and the dataset has no
+directed graphs. The tests check the evidence, not only the yes/no. On 9 October 2026 the whole test suite (439 tests)
+passes.
+
+\section{Answers and verifiers}
+
+\code{submit_answer} is built per answer type: \code{number}, \code{yes_no}, \code{node_list}, \code{edge_list}, and
+\code{yes_no_with_path} and \code{yes_no_with_cycle}, where a ``yes'' carries the path or cycle in an extra field that
+is passed to the verifier. The answer itself remains true or false, so grading does not depend on the evidence.
+
+Each verifier has the signature \code{verify(graph, params, answer, **evidence)} and returns either nothing (accept)
+or an error message the model can act on. The verifiers are:
+\begin{itemize}
+  \item \code{verify_shortest_path}: the path starts and ends at the right nodes, every step is an edge, and its
+        length equals the shortest-path distance (see the qualification in Chapter~\ref{ch:design}).
+  \item \code{verify_mst}: every edge is a real edge, no edge appears twice, the edges contain no cycle (union-find),
+        and there are $n-c$ of them for a graph with $n$ nodes and $c$ components. The dataset's graphs are
+        unweighted and some are disconnected, so any spanning forest is a correct answer; the old pipeline's checker
+        compared against one exact edge set and therefore marked some correct answers wrong.
+  \item \code{verify_connectivity} and \code{verify_cycle}: a ``yes'' must come with a real path or a real simple
+        cycle of at least three nodes; a ``no'' is accepted unchecked.
+  \item \code{verify_neighbors}: every listed node is a real neighbor and is listed once; a missing neighbor cannot be
+        detected.
+  \item \code{verify_path_via}: a real route from source to target through the waypoint, whose length equals the sum
+        of the two shortest-path distances.
+\end{itemize}
+
+\section{Result handles and bounded messages}
+\label{sec:handles}
+
+\subsection{Handles}
+
+A value with more than 200 numbers is stored in a per-run \code{HandleStore}, and the model sees a summary with an
+identifier, the length and the first five items. A list of large items, such as the components of a graph, gets one
+handle per item. Once a handle exists, \code{read_result(handle, offset, limit)} is offered, and \code{submit_answer}
+accepts a handle string in place of the value. Before that, the tool list is unchanged, so the current dataset, whose
+largest tool output has 98 numbers, never sees handles and earlier results are unaffected.
+
+The first real test illustrates principle 4. On a random graph with 10,000 nodes, 25,000 edges and 68 components,
+qwen3:8b was asked for a minimum spanning tree (the answer has 9,932 edges). The tool result came back as a
+336-character summary instead of about 110,000 characters, as intended. The model then submitted the handle twice,
+was rejected both times, and gave up, explaining that the system required the actual list of edges. The note said
+``pass the handle to submit\_answer'', but the schema of \code{submit_answer} said the answer must be an array of
+edges, so a string was impossible. After the fix (once a handle exists, the schema becomes ``edge list or a handle
+string'', and a handle wrapped in a list is resolved too), the same question took two steps, 35 seconds and 1,974
+prompt plus 601 completion tokens, and the verifier checked all 9,932 edges.
+% source: docs/learning_log.md (2026-10-07, M3 step 3), results/harness_runs/handles_big_graph_test
+
+\subsection{Nothing the model reads grows with the graph}
+
+Handles only cover tool results. A review found other messages that scaled with the graph: the missing-node error
+listed every node identifier, about 59,000 characters on a 10,000-node graph for a single typo. It now reads ``Node
+123456 does not exist. G has 10000 nodes, with ids 0 to 9999.'' An audit of every formatted message then produced
+Table~\ref{tab:bounded}. The fix is a helper, \code{brief()}, used wherever a value is repeated to the model, and a
+test file that checks every such message on a 10,000-node graph.
+
+\begin{table}[ht]
+  \centering
+  \small
+  \caption{Size of messages that repeat a value back to the model, on a 10,000-node graph, before and after the audit.}
+  \label{tab:bounded}
+  % source: docs/learning_log.md (2026-10-08, missing-node errors and follow-up audit)
+  \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}X r >{\raggedright\arraybackslash}p{5cm}}
+    \toprule
+    Message & Before (characters) & After \\
+    \midrule
+    Wrong-type answer repeated in full & 174,455 & about 280 (first items and size) \\
+    A page of large items from \code{read_result} & 69,676 & about 3,500 (each big item its own handle) \\
+    The whole cycle repeated by the cycle verifier & 28,923 & names the repeated node \\
+    Missing node: every node listed & about 59,000 & 66 \\
+    Unknown handle: every stored handle listed & 438 (grows) & first 10 and a count \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{The MCP server}
+
+The MCP server (\code{harness/tools/mcp_server.py}) gives other harnesses exactly our tools. It uses the official
+\code{mcp} SDK's low-level server: the tool list is built from the same generated schemas (same names, descriptions
+and schemas), calls go through \code{run_tool} (same validation and errors, flagged as errors in MCP), and large results
+become handles. The SDK's own argument validation is switched off so that error messages match our loop. The server
+speaks stdio, and the client launches one server process per question with the graph file as an argument, so handles
+never leak between questions. Differences from our loop: \code{read_result} is listed from the start, and
+\code{submit_answer} is not served yet; how a general-purpose harness should submit structured answers is decided in
+M6. Our own loop does not use MCP; it calls \code{run_tool} directly.
+
+FastMCP was considered and not used: its main convenience, schemas generated from function signatures, is the opposite
+of what is needed, which is our schemas byte for byte. The server is an adapter of about a hundred lines. Nine tests
+check that the tool list equals ours, that every tool's result through MCP equals \code{run_tool} on dataset graphs,
+that errors match, that handles work, and that the server runs as a real subprocess over stdio.
+\todo[inline]{Open decision recorded in CLAUDE.md: keep the mcp package as a project dependency (it is in pyproject.toml now).}
+
+\section{The run\_python sandbox}
+
+\subsection{Design}
+
+\code{run_python} lets the model write code. It is off by default and offered in one of two modes. In
+\code{"tools"} mode, the code sees our graph tools as plain Python functions and cannot import networkx, so it
+composes our tools instead of bypassing them and their evidence. In \code{"networkx"} mode, the code also gets the
+graph \code{G} and \code{nx}: the escape hatch, kept for comparison.
+
+The code runs in a Docker container, one per question, started on the first call (about 0.3 seconds) and reused for
+later calls (about 0.3 milliseconds per call), so variables persist between calls. The container has no network, a
+read-only file system except a small \code{/tmp}, 512~MB of memory, one CPU, at most 64 processes, no capabilities, a
+non-root user, and 10 seconds per call, after which it is killed and restarted and the reply says that variables were
+lost. Only the graph file and the \code{harness/} package are mounted, read-only. The model gets back the value of
+\code{result} (large values become handles), the printed output (shortened), and errors in the form ``line 2:
+IndexError: list index out of range'', pointing at the model's line rather than at harness internals. The backend is
+swappable; a WebAssembly backend that needs no Docker is the plan for a public release. On the MacBook, Docker is
+provided by OrbStack; on the GPU machine by Docker Engine.
+\todo[inline]{Open decision recorded in CLAUDE.md: Docker vs OrbStack/Colima for the sandbox on macOS.}
+
+\subsection{Plain values in code}
+
+The first version exposed the tools inside code exactly as the model sees them in the loop, returning JSON
+dictionaries. That failed: \code{for n in get_neighbors(4)} iterated over the dictionary's keys, and an error
+dictionary flowed on as if it were a result. Inside code the tools now return plain values, as networkx does
+(\code{get_neighbors(4)} returns \code{[2, 5]}; \code{shortest_path(a, b)} returns a path or \code{None}), and tool
+errors raise \code{ValueError}. \code{graph_info()} and \code{is_bipartite()} keep their dictionaries, and the tool
+description shows what \code{graph_info()} returns. If the model redefines a tool function (one run defined
+\code{get_neighbors} in terms of itself and broke every later call), the original is restored after the call, with a
+note. The lesson recorded at the time: an interface the model already knows beats a better one it has to learn, so
+ours was made to look familiar.
+
+\section{Context window and compaction}
+
+\subsection{The context window}
+
+Ollama serves every model with a 4,096-token context unless asked otherwise, regardless of what the model supports.
+Past that limit the prompt is cut and the reply stops short, with no error. This silently damaged one family of
+experiments (Section~\ref{sec:case-4k}). The model layer now asks Ollama for 16,384 tokens, logs the context window in
+every run's first trace event, and flags any prompt above 90\% of it. Hosted models keep the provider's context.
+
+\subsection{Compaction}
+
+When a prompt passes 75\% of the window, the loop shortens the conversation before the next call, by fixed rules and
+without an LLM summary (free and reproducible). Older tool results longer than 300 characters become a short version
+with a note (``shortened; call the tool again for the full result''), older \code{run_python} code longer than 200
+characters is cut to its start, and the system prompt, the question and the last two rounds stay word for word. No
+message is deleted, because the chat format requires every tool call to keep its reply, and handles keep their full
+values in the store. Each compaction is logged and counted. If nothing is left to shorten and the prompt is above
+90\%, the run ends with status \code{context_full} instead of continuing with a cut prompt. The cost is that the
+provider's prompt cache restarts once after a compaction, because the prefix has changed. In the runs reported in
+Chapter~\ref{ch:results}, no conversation was compacted.
+
+\section{Prompt versioning}
+
+Every piece of text the harness says to the model lives in \code{harness/prompts.py}, together with
+\code{PROMPT_VERSION}, which is logged in every run. The version is bumped, with a changelog line, whenever any
+model-facing text changes, including tool descriptions. Table~\ref{tab:prompt-versions} summarises the changelog.
+Appendix~\ref{app:prompts} reproduces the current texts.
+
+\begin{table}[ht]
+  \centering
+  \small
+  \caption{Prompt versions (changelog in \code{harness/prompts.py}).}
+  \label{tab:prompt-versions}
+  % source: harness/prompts.py (PROMPT_VERSION changelog)
+  \begin{tabularx}{\textwidth}{l>{\raggedright\arraybackslash}X}
+    \toprule
+    Version & What changed \\
+    \midrule
+    v1 & Everything up to and including the M2 pilots \\
+    v2 & v1 plus \code{distances_from} and \code{neighborhood}; used by the M2 closing runs and the Claude Code comparison on large graphs \\
+    v3 & Merge of the two machines' work: Pydantic schemas, three new tools, result handles, bounded messages, waypoint question \\
+    v4 & \code{run_python} description: plain values, errors raise, do not redefine tools \\
+    v5 & \code{CODE_HINT} (strategy hint, only with \code{run_python} and the hint on); combine-task wording \\
+    v6 & \code{EMPTY_REPLY} nudge; \code{graph_info()} shown in the \code{run_python} description; redefined tools restored \\
+    v7 & Compaction texts; runs that never approach the limit see the same text as v6 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{Logging and analysis}
+
+\subsection{Traces and results}
+
+Every run writes the events \code{run_start} (configuration, prompt version, context window), \code{model_call}
+(content, tool calls, thinking, tokens, latency), \code{tool_call} (arguments and the result as the model saw it),
+\code{rescued_tool_call}, \code{verifier_rejected}, \code{nudge}, \code{compacted} and \code{run_end} to
+\code{traces.jsonl}, and one row per answer to \code{results.jsonl}. An early version of the runner re-read the whole
+trace file after every question to find that question's token counts, which made the work grow quadratically with the
+number of questions; the loop now returns these counts directly. The log is for later analysis, not for passing data
+between parts of the program.
+
+\subsection{The report}
+
+\code{eval/analysis/report.py} puts experiments side by side, overall and per task: lenient and strict accuracy, a 95\%
+bootstrap confidence interval over questions (all runs of a question are resampled together), the share of answers a
+verifier actually looked at, the number of answers sent back by a verifier, runs without an answer, compactions, and
+tokens and time per question. With \code{--code} it reports how \code{run_python} was used, and with \code{--process}
+the process metrics below. All tables in Chapter~\ref{ch:results} are produced by this script.
+
+\subsection{Process metrics}
+\label{sec:process-metrics}
+
+\code{eval/analysis/process.py} measures whether the model called the right tools with the right arguments, using the
+definitions of the GDS Agent benchmark \cite{gdsagentbench}. For each task, \code{EXPECTED_CALLS} lists the calls an
+ideal run makes; each expected call is a slot that one of several equivalent tools can fill (for example, a node's
+degree from \code{degree} or from \code{get_neighbors}). With $E$ expected calls, $M$ of them made, and $T$ scored tool
+calls in the run:
+\begin{align*}
+  \text{recall} &= M / E, &
+  \text{precision} &= M / T, &
+  F_1 &= \frac{2PR}{P + R}.
+\end{align*}
+Repeating a call or exploring lowers precision. Parameter match is the share of right arguments in the expected calls
+that were made directly, and exact match means every expected call was made and nothing else. Three deliberate
+differences from the original definitions follow from our setup: \code{run_python} counts as one tool call and fills
+an expected slot when its code calls that tool function (its arguments cannot be read, so it adds no parameter score);
+argument pairs $(u, v)$ and (source, target) also match when swapped, since all graphs are undirected; and the
+parameter score takes the best matching call, since the waypoint task makes the same tool call twice. The ending tools
+and \code{read_result} are not scored.
+
+\subsection{Trajectory analysis}
+
+For multi-step tasks, \code{eval/analysis/trajectory.py} classifies each run by its graph tool calls and its answer:
+ideal, extra calls, alternative path (different calls, correct answer), right calls but wrong answer, or wrong path,
+with flags for detours such as taking the shortcut, using \code{has_path} for a leg, or exploring manually with
+\code{get_neighbors}. The ``alternative path'' class exists because the first version labelled a correct and well
+reasoned run as incomplete; process evaluation has to judge whether each step is justified, not whether it matches one
+expected sequence.

@@ -1,0 +1,96 @@
+\chapter{Text the Harness Sends to the Model}
+\label{app:prompts}
+
+Every piece of text the harness itself says to the model is in \code{harness/prompts.py} (or, for the ending tools,
+\code{read_result} and \code{run_python}, next to their schemas). The texts below are the current version,
+\code{PROMPT_VERSION} = v7, extracted from the code on 9 October 2026; line breaks are added for
+printing. The tool descriptions are in Appendix~\ref{app:tools}.
+
+% source: harness/prompts.py, harness/answers.py, harness/tools/handles.py, harness/sandbox/__init__.py
+
+\section*{System prompt (\code{SYSTEM_PROMPT})}
+Sent as the first message of every run.
+\begin{lstlisting}
+You answer questions about a graph G. You cannot see G directly; use the tools to
+inspect it. When you know the answer, call submit_answer. If the question cannot be
+answered with the available tools, call cannot_answer instead of guessing.
+\end{lstlisting}
+
+\section*{Nudge (\code{NUDGE})}
+Sent when the model replies with plain text instead of calling a tool.
+\begin{lstlisting}
+You did not call a tool. Use the tools to inspect G, call submit_answer with your final
+answer, or call cannot_answer if the question cannot be answered.
+\end{lstlisting}
+
+\section*{Format error (\code{FORMAT_ERROR})}
+Sent when the plain text looks like a hand-written tool call that was not executed (in strict mode, or in lenient mode when the text cannot be parsed into a tool call).
+\begin{lstlisting}
+Your last message contains a tool call written as plain text, so it was NOT executed. Do
+not write tool calls in your reply; call the tool through the function-calling
+interface.
+\end{lstlisting}
+
+\section*{Empty reply (\code{EMPTY_REPLY})}
+Sent when the reply has no text and no tool call (from v6).
+\begin{lstlisting}
+Your reply was empty: no text and no tool call. If you already know the answer, call
+submit_answer now. Otherwise make your next tool call, or call cannot_answer if the
+question cannot be answered.
+\end{lstlisting}
+
+\section*{Code strategy hint (\code{CODE_HINT})}
+Added to the system prompt only when \code{run_python} is offered and the hint is switched on (setup H).
+\begin{lstlisting}
+How to work: use a direct tool for a single lookup. When the answer needs many lookups
+(a value for every neighbor, every node, or every pair of nodes) or a comparison over
+many results, write ONE run_python call that calls the tool functions in a loop and puts
+the answer in `result`: it is faster and avoids mistakes in long lists. You can combine
+both: a tool call to find the candidates, then code to check them all.
+\end{lstlisting}
+
+\section*{Compaction notes (\code{SHORTENED_RESULT}, \code{SHORTENED_CODE})}
+What an older tool result or older code is prefixed with or replaced by when the conversation is compacted (from v7).
+\begin{lstlisting}
+(shortened; call the tool again for the full result)
+# (older code shortened to save space)
+\end{lstlisting}
+
+\section*{\code{submit_answer} (answer type \code{yes_no_with_cycle})}
+The description is built per answer type; this is the cycle-check version, with its evidence field.
+\begin{lstlisting}
+Submit your final answer, which must be true or false. This ends the task.
+
+answer: boolean
+cycle (optional): If your answer is true: the nodes of one cycle in order,
+  e.g. [0, 1, 2] for the cycle 0-1-2-0.
+\end{lstlisting}
+
+\section*{\code{cannot_answer}}
+Offered in every run.
+\begin{lstlisting}
+Use this when the question cannot be answered with the available tools, or the question
+itself is invalid. This ends the task.
+
+reason: string
+\end{lstlisting}
+
+\section*{\code{read_result}}
+Offered once the first handle exists.
+\begin{lstlisting}
+Read part of a large stored result by its handle (e.g. "result_1"): up to `limit` items
+starting at `offset`.
+\end{lstlisting}
+
+\section*{\code{run_python} (mode \code{tools})}
+Offered when the sandbox is on; in mode \code{networkx} the sentence ``Only these functions are available: networkx cannot be imported.'' is replaced by one saying that \code{G} (the graph) and \code{nx} (networkx) are also available.
+\begin{lstlisting}
+Run Python code against G in a sandbox. The graph tools are available as functions with
+the same arguments, returning plain values: get_neighbors(4) -> [2, 5], degree(4) -> 2,
+has_edge(0, 1) -> True, shortest_path(0, 5) -> [0, 2, 5] (None if there is no path),
+graph_info() -> {'nodes': 29, 'edges': 148, 'directed': False} (a dict, like
+is_bipartite()). A tool error raises ValueError. Don't redefine these functions. Only
+these functions are available: networkx cannot be imported. Variables persist between
+calls. Put the value you want back in a variable named `result`; printed output is shown
+too (shortened if long). No network or files; each call may run at most 10 seconds.
+\end{lstlisting}

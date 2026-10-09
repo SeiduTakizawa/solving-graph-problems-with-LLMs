@@ -1,0 +1,25 @@
+\chapter{Conclusion (Provisional)}
+\label{ch:conclusion}
+
+\todo[inline]{Provisional conclusion: rewrite once M4--M7 are done and the research question can be answered with repeated runs and confidence intervals.}
+
+This thesis builds a graph-specific, cost-aware agent harness and asks whether it lets a cheap model match or beat a
+frontier model in a general-purpose harness at a fraction of the cost. On the date of this draft the harness itself is
+built: a loop with budgets and robust handling of malformed replies, validated tools that return evidence, structured
+answers, verifiers that check evidence without becoming oracles, result handles and bounded messages that keep the
+context independent of the graph size, an MCP server that gives other harnesses exactly the same tools, a locked-down
+sandbox for model-written code, context compaction, and logging and analysis from which every number can be
+reproduced.
+
+The preliminary results are consistent with the hypothesis on the cost side and inconclusive on the accuracy side.
+On the existing dataset, a local 8-billion-parameter model in the harness answered everything correctly in lenient
+mode, and its remaining errors were format errors that the harness can rescue or, in future, prevent. A
+general-purpose harness with a frontier model reached the same accuracy on a small preview with 17--35 times more input
+tokens per question. Well-fitting tools reduced cost by about an order of magnitude at equal accuracy, and on tasks
+that need many lookups, code over the same tools turned near-total failure into near-total success for a cheap model.
+These results come from single runs on few questions of the development split, mostly with one model, on a dataset that
+is saturated on its largest graphs; they are not yet evidence for the research question.
+
+What remains is what will decide it: harder and larger tasks from the scaled generator and the external benchmarks,
+the same-model and same-tools comparison with general-purpose harnesses, the router, skills and escalation, and the
+repeated runs with confidence intervals that let the accuracy-versus-cost Pareto front be drawn.

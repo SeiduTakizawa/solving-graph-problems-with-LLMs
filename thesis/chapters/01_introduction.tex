@@ -1,0 +1,112 @@
+\chapter{Introduction}
+\label{ch:intro}
+
+\section{Motivation}
+
+Graphs describe road and transport networks, power grids, dependency structures, social and financial networks.
+Many everyday questions about such systems are graph questions: is there still a route if this station closes, what
+is the shortest way from A to B, does this set of tasks contain a circular dependency. Large language models (LLMs)
+are increasingly asked questions like these in natural language, and a body of work has studied how well they answer
+them.
+
+The standard way of giving an LLM a graph is to serialize it: the edge list or adjacency list is written into the
+prompt, and the model is asked a question about it. The prior work this thesis builds on, Skianis et al.\
+\cite{skianis2024pseudocode}, followed this route and showed that the way the model is prompted matters: adding
+pseudo-code of the relevant algorithm, alone or with a worked example, changes how well models reason over the
+serialized graph. Serialization has two structural problems, however. First, the prompt grows with the graph, so the
+cost of every question grows with it and large graphs do not fit at all. Second, the model is left to do work it is
+poor at: counting long lists, searching exhaustively, and copying dozens of node identifiers without a mistake.
+
+Agent harnesses offer a different arrangement. A harness is the program around a model: it decides what the model
+sees, which tools it may call, when a run stops, and what happens to the answer. General-purpose harnesses such as
+Claude Code \cite{claudecode} let a strong model write and run code, so a graph question can be answered by a
+networkx \cite{networkx} script instead of by reading the graph. This works, but it is expensive: the harness carries
+a large system prompt and tool machinery built for software engineering, and it relies on a frontier model that
+knows how to use a graph library. In a small preview run (Chapter~\ref{ch:results}), Claude Code used on average about
+41,900 input tokens per question on graph questions that our harness answered with about 1,500.
+
+This thesis asks whether a harness built specifically for graph problems can get the same answers from a cheap
+model. The graph stays in Python memory and is never written into the prompt; the model sees only the results of
+validated graph tools. The harness checks answers with code, keeps every message bounded regardless of graph size,
+and logs everything, so that accuracy and cost can be measured and reproduced.
+
+\section{Research question}
+
+The core research question is:
+
+\begin{quote}
+Can a graph-specific harness let a cheap model match or beat a frontier model running in a general-purpose harness
+(e.g.\ Claude Code), at a fraction of the cost?
+\end{quote}
+
+``Better'' is judged on the accuracy-versus-cost Pareto front, not on raw accuracy alone: a configuration that is
+slightly less accurate but an order of magnitude cheaper can be the better choice, and a configuration is only
+dominated if another one is at least as accurate and at least as cheap. Cost is measured in tokens and latency for the
+local models, where the dollar cost is zero, and in dollars (API-equivalent) for hosted models.
+
+The question breaks down into sub-questions that follow the components of the harness:
+\begin{enumerate}
+  \item How accurate is a cheap local model when it solves graph problems through tools, compared with the same model
+        and with a frontier model in a general-purpose harness given the same tools?
+  \item What does each harness component contribute (tool design, verifiers, result handles, code execution,
+        routing and skills, escalation) to accuracy and cost? This is answered by ablations.
+  \item Where do cheap models fail inside a harness, and which failures can the harness remove? This is a
+        process-level question (the proposal's Option B), answered from the trajectories rather than the final answers.
+\end{enumerate}
+\todo[inline]{Check the sub-questions against the proposal (docs/thesis\_proposal\_options\_ABC.pdf). The PDF is referenced in CLAUDE.md but is not in the repository on 2026-10-09, so this draft could not use it.}
+
+\section{Contributions}
+
+The thesis is in progress. The contributions below are separated into what is built and measured on the date of this
+draft and what is planned.
+
+\paragraph{Achieved so far.}
+\begin{itemize}
+  \item A working graph-specific agent harness in Python (Chapters~\ref{ch:design} and~\ref{ch:impl}): an agent loop
+        with budgets, loop detection and rescue of malformed tool calls; 13 default graph tools and 5 opt-in tools,
+        each validating its input and never raising; per-task structured answers; result handles for large outputs;
+        a bound on every message the model can see; context compaction; prompt versioning; and full JSONL tracing.
+  \item Evidence-based verifiers: programmatic checks that inspect the evidence an answer carries (a path, a cycle, a
+        spanning forest, a neighbor list) and do not re-solve the question, together with an explicit account of which
+        answers can and cannot be checked this way.
+  \item An MCP server that exposes exactly the same tools, so that general-purpose harnesses can be compared with
+        ours on equal tools, and a locked-down Docker sandbox for model-written code.
+  \item An evaluation toolkit: a runner over the existing dataset and generated tasks, a report with strict and
+        lenient accuracy and bootstrap confidence intervals, and process metrics (tool precision, recall, F1,
+        parameter match) defined as in the GDS Agent benchmark \cite{gdsagent,gdsagentbench}.
+  \item Preliminary findings (Chapter~\ref{ch:results}): on the existing dataset a cheap model with fitting tools is
+        accurate, and its remaining errors are formatting errors rather than reasoning errors; well-fitting tools cut
+        cost by roughly an order of magnitude at equal accuracy; on aggregation tasks, code over the same tools
+        succeeds where tool-by-tool calling fails; and a silent serving setting (a 4,096-token context) can masquerade
+        as model behaviour.
+\end{itemize}
+
+\paragraph{Planned.}
+\begin{itemize}
+  \item A router and per-family skills, with per-family tool filtering (M4), and an interactive command-line
+        interface (M4.5).
+  \item Escalation to a stronger model when verification fails (M5).
+  \item Benchmark adapters (GABench \cite{gabench}, ProGraph \cite{prograph}, GrAlgoBench \cite{gralgobench},
+        GT Bench \cite{gtbench}, and the GDS Agent benchmark \cite{gdsagentbench}) and baselines in the same
+        conditions: pure prompting, a generic ReAct-style agent with Python, Claude Code headless, GraphTeam
+        \cite{graphteam} (M6).
+  \item The final experiments: size scaling, Pareto fronts, component ablations, and repeated runs with confidence
+        intervals (M7).
+\end{itemize}
+
+\section{Scope and status of this draft}
+
+All results in this draft come from the development split of the dataset, most from a single run, on small question
+sets, with confidence intervals only where the report computes them. The project plan requires at least three runs
+per configuration and bootstrap confidence intervals before any result is treated as final; this draft does not meet
+that bar yet. The results are reported to document the state of the work and the lessons learned while building the
+harness, not as the thesis's answer to the research question.
+
+\section{Structure}
+
+Chapter~\ref{ch:background} reviews LLM-based graph reasoning, tool use and agent harnesses, and graph benchmarks.
+Chapter~\ref{ch:design} presents the design principles and the architecture. Chapter~\ref{ch:impl} describes the
+implementation as built. Chapter~\ref{ch:setup} describes the dataset, models, configurations and metrics.
+Chapter~\ref{ch:results} reports the results so far. Chapter~\ref{ch:discussion} discusses them and collects the
+lessons learned. Chapter~\ref{ch:remaining} lists the remaining work, and Chapter~\ref{ch:conclusion} gives a
+provisional conclusion. The appendices list the tools and the text the harness sends to the model.

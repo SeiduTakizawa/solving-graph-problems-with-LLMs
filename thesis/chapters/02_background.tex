@@ -1,0 +1,148 @@
+\chapter{Background and Related Work}
+\label{ch:background}
+
+This chapter places the harness among three lines of work: LLMs reasoning over serialized graphs, tool use and agent
+harnesses, and benchmarks and systems for graph problems with LLM agents.
+\todo[inline]{This chapter is partial: the descriptions of GABench, GraphChain, GT Bench, GrAlgoBench, ProGraph and GraphTeam are limited to what the repository records. Read the papers and expand each paragraph (task coverage, sizes, headline results, how tools are given to the model).}
+
+\section{LLMs on graphs: serialization and prompting}
+
+\subsection{Serializing a graph into the prompt}
+
+The most direct way to ask an LLM about a graph is to write the graph into the prompt. The dataset of the prior work
+stores each question in two such forms, an adjacency list and an edge list, followed by the question
+(``What is the degree of node 3?''). The model must then read the structure from text, and every operation on it,
+from counting edges to finding a path, happens inside the model's generation.
+
+Two properties of this setup matter for this thesis. The prompt grows linearly with the number of edges, so the cost
+of a question grows with the graph and sufficiently large graphs no longer fit in the context window. And the
+operations that graph questions need, such as exhaustive search, counting and copying long lists, are exactly the
+operations where language models make small, hard-to-detect mistakes. Section~\ref{sec:audit} shows that even on the
+dataset's largest graphs (21--50 nodes) the edge lists are long: the large graphs have between 63 and 1,005 edges.
+
+\subsection{Pseudo-code prompting (prior work)}
+
+Skianis et al.\ \cite{skianis2024pseudocode} studied how prompting affects graph reasoning over serialized graphs.
+Their pipeline, which is kept in this repository (\code{graph_reasoning/}), compares the following prompting methods
+on ten problems (node count, edge count, node degree, neighbors, edge existence, connectivity, connected components
+count, cycle check, shortest path and minimum spanning tree), on Erd\H{o}s--R\'enyi graphs of three sizes:
+\begin{itemize}
+  \item \emph{none}: the question alone;
+  \item \emph{chain of thought}: ``Let's think step by step.'' appended to the question;
+  \item \emph{build a graph}: ``Let's construct a graph with the nodes and edges first.'';
+  \item \emph{algorithm}: the pseudo-code of a suitable algorithm prepended, with an instruction to follow it step by step;
+  \item \emph{one-shot}: a worked example before the question;
+  \item \emph{one-shot with pseudo-code}: both.
+\end{itemize}
+The pseudo-code and one-shot prompts live in \code{data/pseudocodes/}. In the new harness they are planned to become
+per-task playbooks (``skills'', Section~\ref{sec:m4}), and the prompting methods become the pure-prompting baselines
+of M6.
+\todo[inline]{Summarize the headline results of Skianis et al.\ 2024 (which methods helped, on which problems and sizes, and for which models). Not recorded in the repository docs; take them from the paper.}
+
+The harness developed here departs from this line of work in one decisive way: the graph is never placed in the
+prompt (design principle~1, Chapter~\ref{ch:design}). The question the model sees is rebuilt from a template that
+contains only the parameters, such as node identifiers.
+
+\section{Tool use and agent harnesses}
+
+\subsection{Function calling and the agent loop}
+
+Modern LLM APIs let a model call functions: the application describes each tool with a name, a natural-language
+description and a JSON schema for its arguments, the model replies with a structured tool call instead of (or as well
+as) text, the application runs the tool and appends the result to the conversation, and the model is called again.
+Repeating this until the model produces a final answer is the basic agent loop, popularised by ReAct-style agents
+\cite{react}, which interleave reasoning steps with actions. A minimal version of such a loop, as in mini-swe-agent
+\cite{miniswe}, needs little more than a message list, a model call and a dispatcher for tool calls.
+
+Two consequences of this design shape everything in Chapter~\ref{ch:design}. The model has no memory between calls:
+every call re-sends the whole history, so each extra step makes every later step more expensive (in an early trace of
+this project, the prompt grew from 249 to 407 tokens between the first and the second step). And the tool
+descriptions are the model's only manual: whatever the model believes a tool does comes from its name, its
+description and its schema.
+
+\subsection{Agent harnesses}
+
+We use \emph{harness} for everything around the model: what goes into the context, which tools are offered, how tool
+errors and malformed replies are handled, when a run is stopped, and how an answer is accepted. General-purpose
+coding harnesses such as Claude Code \cite{claudecode} give a frontier model a shell, a file system and a code
+interpreter, and are built for software engineering. They can solve graph problems by writing code against a graph
+library, but they carry their own large system prompt and tool definitions on every call. In the comparisons of
+Chapter~\ref{ch:results}, this overhead accounts for most of the roughly 21,500 to 42,000 input tokens that Claude Code
+used per question.
+
+\subsection{The Model Context Protocol}
+
+The Model Context Protocol (MCP) \cite{mcp} is an open protocol for connecting AI applications to tools. A server
+announces its tools (name, description, JSON schema); a client, such as Claude Code or an agent framework, shows them
+to its model and forwards the calls. Transports include standard input/output, where the client launches the server
+as a subprocess, and HTTP. For this thesis MCP is a fairness device: it is the standard way of handing the
+harness's own tools, byte for byte, to a different harness, so that a comparison of harnesses does not become a
+comparison of tool sets.
+
+\section{Benchmarks and systems for graph problems with LLM agents}
+
+\paragraph{GABench.} GABench \cite{gabench} is an agent benchmark for graph problems; it argues for graph-specific
+harnesses, which is the direction this thesis takes. It is one of the benchmarks planned for the M6 adapters.
+
+\paragraph{GraphChain.} GraphChain \cite{graphchain} chains tool calls over 45 networkx APIs to analyse graphs. It is
+closest to our tool layer in spirit; the difference is that our tools return evidence for their answers and validate
+their inputs, and that the harness around them verifies, budgets and logs.
+
+\paragraph{GT Bench.} GTA / GT Bench \cite{gtbench} is one of the benchmarks planned for the M6 adapters.
+
+\paragraph{GrAlgoBench.} GrAlgoBench \cite{gralgobench} is a further graph benchmark planned for the M6 adapters.
+
+\paragraph{ProGraph.} The ProGraph benchmark \cite{prograph} is also planned for the M6 adapters.
+
+\paragraph{GraphTeam.} GraphTeam \cite{graphteam} is a multi-agent graph system, planned as one of the M6 baselines.
+
+\paragraph{GDS Agent.} The Neo4j GDS Agent \cite{gdsagent} was reviewed in detail (\code{docs/gds_agent_findings.md}),
+because it is the closest public system and comes with a benchmark that includes frontier-model costs. It is a tool
+server rather than a harness: about 60 Neo4j Graph Data Science algorithms over MCP, plus one short skill file that
+tells the agent how to use them. The loop, budgets, verification and context management are left to whichever
+harness runs it (Claude Code, Codex, Cursor, Gemini CLI). This makes it almost exactly the ``frontier model in a
+general-purpose harness'' side of our research question. The graph lives in Neo4j; the agent first projects an
+in-memory graph and then runs algorithms on it, either streaming a result table or writing the result back to the
+graph as a property for later tools. Bad inputs return raw exception text, and large results are returned as text
+tables capped at 500 rows or 100,000 characters per result. Verification is requested in the skill (the model is
+asked to verify key results with a different method) rather than enforced.
+
+Its benchmark \cite{gdsagentbench} lists questions with the expected tools, parameters and answers, and publishes full
+results for Haiku 4.5, Sonnet 4, GPT-5 and GPT-4o run through Claude Code, including tokens and dollar cost per
+question. The London Underground set has 88 questions on a graph of 302 stations and 406 links; a Game of Thrones set
+has 12 questions on 2,565 nodes; a citations set covers top-$k$ ratios, longest citation chains and Adamic--Adar link
+prediction. The paper reports GPT-5 as best, at 85.4\% answer accuracy, and, across models, tool precision 0.77,
+recall 0.85, F1 0.75, parameter match 0.89 and answer match 0.66; its authors find that tool metrics barely correlate
+with answer accuracy. The process metrics of this thesis use the same definitions
+(Section~\ref{sec:process-metrics}) so that the numbers can be compared. The failure modes the paper describes (giving
+up on outputs that exceed the token limit, ignoring the requested output format, ``pretending to reason'' when a tool
+is missing, injecting outside knowledge about London, and imperfect tool choice among about 60 tools) each have a
+counterpart in our design (Table~\ref{tab:gds-failures}).
+% source: docs/gds_agent_findings.md
+
+\begin{table}[ht]
+  \centering
+  \small
+  \caption{Failure modes reported for the GDS Agent and the corresponding mechanism in our harness.}
+  \label{tab:gds-failures}
+  % source: docs/gds_agent_findings.md (section 4)
+  \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{3.2cm}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
+    \toprule
+    Failure (GDS Agent) & What happens & Our mechanism \\
+    \midrule
+    Large outputs & The agent gives up when the output would exceed the allowed tokens & Result handles, bounded messages, compaction, \code{context_full} status \\
+    Ignored output format & Post-processes results in its own way & \code{submit_answer} with a per-task schema \\
+    Missing tool & ``Pretends to reason'', e.g.\ a max-flow question answered by adding two shortest paths & \code{cannot_answer}, offered in every nudge \\
+    Outside knowledge & Injects facts about the real London network & Synthetic graphs (a risk again for the London adapter) \\
+    Tool choice & Precision 0.77 with about 60 tools on offer & 13 default tools; per-family filtering planned (M4) \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{Positioning}
+
+Compared with the serialization line of work, the harness removes the graph from the prompt and moves computation into
+tools. Compared with general-purpose harnesses, it trades generality for a small, bounded context, validated tools,
+structured answers and code verification. Compared with tool servers such as GDS Agent, it is the missing layer around
+the tools: the loop, budgets, verification and logging. The thesis tests whether that layer is enough to let a cheap
+model compete with a frontier model on cost and accuracy together.

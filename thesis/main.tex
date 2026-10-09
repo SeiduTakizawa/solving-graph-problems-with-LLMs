@@ -1,0 +1,122 @@
+% Draft MSc thesis: a graph-specific, cost-aware agent harness.
+% Build: latexmk -pdf -interaction=nonstopmode main.tex   (pdflatex + bibtex)
+\documentclass[12pt,a4paper]{report}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,fit,backgrounds}
+\usepackage[colorinlistoftodos,textsize=small]{todonotes}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true,linkcolor=blue!50!black,citecolor=green!40!black,urlcolor=blue!60!black}
+
+% Identifiers from the code (tool names, files, fields). \detokenize keeps underscores literal.
+\DeclareRobustCommand{\code}[1]{\texttt{\detokenize{#1}}}
+% Planned work, not built yet.
+\newcommand{\planned}[1]{\textit{(planned: #1)}}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  columns=fullflexible,
+  frame=single,
+  framerule=0.3pt,
+  showstringspaces=false,
+  upquote=true
+}
+
+\setlength{\parskip}{0.4em}
+
+% Long code identifiers (e.g. \texttt{minimum_spanning_tree}) otherwise stick out into the margin.
+\usepackage{microtype}
+\setlength{\emergencystretch}{3em}
+
+\begin{document}
+
+% ---------------------------------------------------------------- title page
+\begin{titlepage}
+  \centering
+  {\large University of Ioannina\par}
+  {\large Department of Computer Science and Engineering\par}
+  \vspace{3cm}
+  {\LARGE\bfseries A Graph-Specific, Cost-Aware Agent Harness for Solving Graph Problems with Large Language Models\par}
+  \vspace{1.5cm}
+  {\large MSc Thesis\par}
+  \vspace{2cm}
+  {\large Vasileios Papadimitriou\par}
+  \vspace{1cm}
+  {\large Supervisor: Konstantinos Skianis\par}
+  \vfill
+  {\large Draft, 9 October 2026\par}
+  \vspace{0.5cm}
+  {\small This draft reflects the state of the project on the date above. Chapters and results are preliminary.\par}
+\end{titlepage}
+
+% ---------------------------------------------------------------- abstracts
+\pagenumbering{roman}
+
+\chapter*{Abstract}
+\addcontentsline{toc}{chapter}{Abstract}
+Large language models (LLMs) can answer questions about graphs, but the usual way of giving them a graph, as a
+serialized edge list inside the prompt, makes the prompt grow with the graph and leaves the model to count, search and
+copy long lists by itself. This thesis studies a different arrangement: a graph-specific agent harness, a Python program
+that keeps the graph in memory, never shows it to the model, and lets a cheap model solve the problem by calling
+validated graph tools. The harness checks the final answer with programmatic verifiers that inspect the evidence an
+answer carries (a path, a cycle, a spanning forest) without solving the question a second time, and it logs every step
+so that every reported number can be recomputed. The research question is whether such a harness lets a cheap model
+match or beat a frontier model running in a general-purpose harness, such as Claude Code, at a fraction of the cost,
+judged by the accuracy-versus-cost Pareto front rather than by accuracy alone.
+
+The harness is built (agent loop, 13 default graph tools plus 5 opt-in ones, evidence-based verifiers, result handles
+for large outputs, an MCP server, a Docker sandbox for model-written code, context compaction, and process-level
+metrics). Preliminary results on the development split, mostly from a single run, are encouraging but narrow. With an
+8-billion-parameter local model, all 270 answers of the closing run on the large dataset graphs were correct when tool
+calls written as text were rescued, and 88--90\% without that rescue; on these tasks the verifiers caught no wrong
+answers, because the tools left none. On a small preview, Claude Code with a frontier model and our harness with the
+local model both answered 9 of 9 questions, while our harness used about 28 times fewer input tokens. On tasks that
+need many lookups and a comparison, tool-by-tool calling failed (2 of 15) and letting the model write code over the
+same tools succeeded (14 of 15 with a strategy hint). The router, skills, escalation, benchmark adapters, the fair
+same-model baselines and the repeated runs with confidence intervals are still to be done.
+\todo[inline]{Revise the abstract once the model pilot, M4--M6 and the final experiments (M7) are done; numbers here are preliminary (dev split, mostly 1 run).}
+
+\chapter*{Abstract in Greek}
+\addcontentsline{toc}{chapter}{Abstract in Greek}
+\todo[inline]{Greek abstract (Perilipsi): to be written by the author. Note: Greek text needs babel with the greek option (texlive-lang-greek).}
+
+\tableofcontents
+\listoffigures
+\listoftables
+\listoftodos[List of open items (TODO)]
+
+\clearpage
+\pagenumbering{arabic}
+
+\include{chapters/01_introduction}
+\include{chapters/02_background}
+\include{chapters/03_design}
+\include{chapters/04_implementation}
+\include{chapters/05_setup}
+\include{chapters/06_results}
+\include{chapters/07_discussion}
+\include{chapters/08_remaining_work}
+\include{chapters/09_conclusion}
+
+\appendix
+\include{chapters/a_tools}
+\include{chapters/b_prompts}
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

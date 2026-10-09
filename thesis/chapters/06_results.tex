@@ -1,0 +1,528 @@
+\chapter{Results So Far}
+\label{ch:results}
+
+This chapter reports every experiment run up to 9 October 2026, roughly in the order they were made. All of them are on
+the development split. Most are a single run on a handful of questions, made while the harness was being built, and
+several were made to decide a design question rather than to measure the final system. They show where the harness
+stands and what each component did when it was introduced; they do not yet answer the research question. Unless
+stated otherwise, tables are produced by \code{eval/analysis/report.py} from the folder named in the caption, and the
+model is \code{qwen3:8b}.
+
+\section{First experiment: node degree on small graphs}
+
+The first experiment asked 100 node-degree questions on the small development graphs (two per graph), with only two
+tools available, \code{get_neighbors} and an edge counter, and no edge list in the prompt. It was planned as three
+runs; the third was stopped after 12 questions. Over the 212 answers, accuracy was 99.5\% (95\% CI 98.6--100\%), at
+about 1,356 tokens and 4.3 seconds per answer. The only failure was not a reasoning failure: the model called
+\code{get_neighbors}, received the six neighbors, and then wrote its (correct) answer of 6 as a text tool call three
+times, until loop detection stopped the run. This was the first sign that the final answer's format, not the
+reasoning, would be the cheap model's weak point.
+% source: results/harness_runs/degree_small_dev_v1, docs/learning_log.md (2026-10-04)
+
+\section{Well-fitting tools}
+
+Three times during the project a tool was added that answers a task directly, and each time the effect was the same.
+
+\subsection{A direct edge test}
+
+Table~\ref{tab:has-edge} compares five edge-existence questions on small graphs with and without \code{has_edge}.
+Without it, the model spent 1,500--2,700 thinking tokens working out that \code{get_neighbors} answers the question
+before making its first call; with it, 275--287 tokens every time.
+
+\begin{table}[ht]
+  \centering
+  \small
+  \caption[Ablation: the has\_edge tool]{Ablation of \code{has_edge}: 5 edge-existence questions, small development
+  graphs, 1 run. Prompt tokens in these runs are inflated by the thinking-in-history bug (fixed later); accuracy and
+  output tokens are unaffected.}
+  \label{tab:has-edge}
+  % source: results/harness_runs/has_edge_ablation_without, results/harness_runs/has_edge_ablation_with, docs/learning_log.md (2026-10-05)
+  \begin{tabular}{lrr}
+    \toprule
+    & without \code{has_edge} & with \code{has_edge} \\
+    \midrule
+    correct & 5/5 & 5/5 \\
+    output tokens (all 5 questions, mostly thinking) & 2,256 & 282 \\
+    prompt tokens (all 5 questions) & 4,200 & 1,231 \\
+    tokens per question (report) & 6,456 & 1,514 \\
+    time per question & 23.7 s & 3.1 s \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{A degree tool}
+
+In the large-graph pilot, node-degree questions were by far the slowest (133 seconds per answer on the MacBook,
+up to 223 seconds). The time went into the first step, before any tool call: the model debated whether $G$ might be
+directed and the degree therefore in-degree plus out-degree, then called \code{graph_info} to check. Its first thought
+was that there is no function called degree, so \code{get_neighbors} was the way to go. Adding \code{degree}
+(Table~\ref{tab:degree}) removed both the debate and the counting.
+
+\begin{table}[ht]
+  \centering
+  \small
+  \caption[Ablation: the degree tool]{Ablation of \code{degree}: the same 6 node-degree questions on large development
+  graphs, 1 run, MacBook Air M4.}
+  \label{tab:degree}
+  % source: results/harness_runs/m2_pilot_large_verify, results/harness_runs/degree_tool_large_pilot, docs/learning_log.md (2026-10-07)
+  \begin{tabular}{lrr}
+    \toprule
+    & without \code{degree} & with \code{degree} \\
+    \midrule
+    correct & 6/6 & 6/6 \\
+    time per question & 133 s (max 223 s) & 17 s (max 23 s) \\
+    output tokens (mostly thinking) & 1,988 & 264 \\
+    total tokens & 3,758 & 1,582 \\
+    rescued text tool calls & 4/6 & 1/6 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Building blocks for multi-step questions}
+
+Two questions that no single tool answered, the farthest node from a given node and the number of nodes within two
+hops, were asked on one small graph (7 nodes) and one large graph (29 nodes), first with the basic tools and then with
+\code{distances_from} and \code{neighborhood} added (Table~\ref{tab:multistep}). These runs were not traced; the
+numbers come from the console output recorded in the learning log.
+
+\begin{table}[ht]
+  \centering
+  \small
+  \caption{Multi-step probes with and without the building-block tools (1 run each, not traced).}
+  \label{tab:multistep}
+  % source: docs/learning_log.md (2026-10-07, multi-step questions)
+  \begin{tabularx}{\textwidth}{l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{4cm}}
+    \toprule
+    Question & Basic tools & With \code{distances_from}, \code{neighborhood} \\
+    \midrule
+    small, farthest & correct; 7 steps, 70 s (components, then 4 shortest paths) & correct; 2 steps, 20 s \\
+    small, within 2 hops & gave up with no tool call, 87 s & correct; 2 steps, 10 s \\
+    large, farthest & gave up after one shortest-path call & correct; 2 steps, 16 s \\
+    large, within 2 hops & answered 26 (truth 28) after 4 of the needed neighbor calls, 151 s & correct; 2 steps, 9 s \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+With low-level tools the model would have needed about 28 calls and the merging of lists in its head, so it gave up
+or did part of the work and guessed. The new tools were not written for these exact questions: they also answer ``how
+many nodes at distance 3'', ``is anything unreachable'', eccentricity, and any $k$-hop question. Two side observations:
+\code{cannot_answer} stopped the guessing but became an easy way out on questions the model could have answered, and
+the wrong answer of 26 looked as confident as a correct one, because these question types have no verifier.
+
+\section{M2 closing run: verifiers on and off}
+
+\subsection{Pilot}
+
+A pilot on the MacBook (large development graphs, all nine tasks with large questions, six questions each, one run,
+verifiers on) answered all 54 questions correctly in lenient mode and 43 of 54 (79.6\%) in strict mode. In every
+question the model picked the right tool on its first call. Eleven answers (20\%) were rescued text tool calls, and in
+five of six cycle-check questions the verifier sent the answer back once, because the model answered ``yes'' without
+the cycle. Its thinking showed why: the cycle was in the tool result, but ``the user only asked if there's a cycle, so
+confirming true is sufficient''. The description of \code{submit_answer} makes the evidence sound optional.
+% source: results/harness_runs/m2_pilot_large_verify, docs/learning_log.md (2026-10-07, pilot)
+
+\subsection{Closing run}
+
+The closing run of M2 was made on the RTX 5070 with the large development graphs: nine tasks, 15 questions each, two
+runs, prompt version v2, once with verifiers (\code{m2_large_verify}) and once without (\code{m2_large_noverify}).
+Without verifiers the model is still asked for the same evidence; only the checking is off. The two fixes suggested by
+the pilot (saying that evidence is required, and stating in the prompt that $G$ is undirected) were not applied first.
+Table~\ref{tab:m2} gives the overall numbers and Table~\ref{tab:m2-tasks} the strict accuracy per task.
+
+\begin{table}[ht]
+  \centering
+  \small
+  \caption{M2 closing run: large development graphs, 9 tasks $\times$ 15 questions $\times$ 2 runs, qwen3:8b, RTX 5070.}
+  \label{tab:m2}
+  % source: results/harness_runs/m2_large_verify, results/harness_runs/m2_large_noverify
+  % (uv run python -m eval.analysis.report m2_large_verify m2_large_noverify --by-task)
+  \begin{tabular}{lrr}
+    \toprule
+    & verifiers on & verifiers off \\
+    \midrule
+    answers & 270 & 270 \\
+    accuracy (lenient) & 100.0\% & 100.0\% \\
+    strict accuracy & 88.1\% & 90.4\% \\
+    answers a verifier looked at & 44\% & 0\% \\
+    answers sent back by a verifier & 18 & -- \\
+    runs without an answer & 0 & 0 \\
+    tokens per question & 2,237 & 2,145 \\
+    time per question & 4.6 s & 4.3 s \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[ht]
+  \centering
+  \small
+  \caption[M2 closing run per task]{M2 closing run per task. Lenient accuracy is 100\% for every task in both
+  conditions; the table shows strict accuracy, tokens and time per question.}
+  \label{tab:m2-tasks}
+  % source: results/harness_runs/m2_large_verify, results/harness_runs/m2_large_noverify (report --by-task)
+  \begin{tabular}{lrrrrrr}
+    \toprule
+    & \multicolumn{3}{c}{verifiers on} & \multicolumn{3}{c}{verifiers off} \\
+    \cmidrule(lr){2-4}\cmidrule(lr){5-7}
+    Task & strict & tokens & time & strict & tokens & time \\
+    \midrule
+    \code{connected_components_count} & 96.7\% & 2,081 & 3.4 s & 96.7\% & 2,068 & 3.2 s \\
+    \code{connected_nodes} & 46.7\% & 2,368 & 5.2 s & 60.0\% & 2,135 & 4.2 s \\
+    \code{cycle_check} & 93.3\% & 2,797 & 5.0 s & 96.7\% & 2,121 & 3.9 s \\
+    \code{edge_count} & 100.0\% & 1,930 & 3.2 s & 100.0\% & 1,952 & 3.3 s \\
+    \code{edge_existence} & 100.0\% & 1,934 & 3.5 s & 100.0\% & 1,965 & 3.1 s \\
+    \code{mst} & 83.3\% & 3,128 & 11.0 s & 83.3\% & 3,163 & 11.0 s \\
+    \code{node_count} & 93.3\% & 1,980 & 3.7 s & 96.7\% & 1,982 & 3.7 s \\
+    \code{node_degree} & 100.0\% & 1,875 & 2.7 s & 90.0\% & 1,875 & 2.7 s \\
+    \code{shortest_path} & 80.0\% & 2,042 & 3.6 s & 90.0\% & 2,046 & 3.6 s \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Four observations follow.
+\begin{enumerate}
+  \item The verifiers never caught a wrong answer, because there were none: the tools compute the answer and the
+        model copies it correctly. On these tasks the verifiers cost a little (4\% more tokens) and bought nothing.
+  \item All 18 rejections were the same: a ``yes'' to cycle check without the cycle (18 of 30 cycle-check runs), each
+        fixed on the second try. This made cycle check 32\% more expensive in tokens (2,797 against 2,121) and about
+        1.1 seconds slower. It is the pilot's finding again, and the open fix A (evidence required) targets it.
+  \item Rescued text tool calls are the real error source: 10--12\% of answers. They concentrate in
+        \code{connected_nodes}, where 16 of 30 and 12 of 30 answers were rescued, about half, and then in shortest
+        path and MST: the tasks whose answers are long lists.
+  \item The large dataset graphs no longer separate anything: every task is at 100\% lenient accuracy with the
+        current tools. The confidence intervals in the report are degenerate (100--100\%) for the same reason.
+\end{enumerate}
+The differences in strict accuracy between the two conditions (for example 46.7\% against 60.0\% on
+\code{connected_nodes}) come from 30 answers per cell and one pair of runs each, and should not be read as an effect
+of the verifiers: the verifier only runs after an answer has been submitted, rescued or not.
+
+\subsection{Process metrics}
+
+Scored with the process metrics of Section~\ref{sec:process-metrics}, both M2 runs are process-perfect: tool precision,
+recall and F1 of 1.00, parameter match 1.00 and exact match 100\% over all 270 answers each. On these nine tasks the
+cheap model always called the one expected tool with the right arguments, and nothing else.
+% source: results/harness_runs/m2_large_verify, results/harness_runs/m2_large_noverify (report --process)
+
+\section{Large graphs: result handles}
+
+The handle mechanism was tested on one generated graph with 10,000 nodes, 25,000 edges and 68 components
+(Section~\ref{sec:handles}). After the schema fix, qwen3:8b answered the minimum-spanning-tree question in two steps,
+35 seconds and 1,974 prompt plus 601 completion tokens, by submitting the handle of the tool result, and the verifier
+checked all 9,932 edges. Without handles, the tool result alone would have been about 110,000 characters. This is a
+single run on a single graph; size scaling is planned for M7 with the M6 generator.
+% source: results/harness_runs/handles_big_graph_test, docs/learning_log.md (2026-10-07, M3 step 3)
+
+\section{Previews of the comparison with a general-purpose harness}
+
+Three small comparisons with Claude Code were made. None of them is the fair comparison planned for M6 (same model,
+same tools, many questions): they use a different model, and the first two also different tools.
+
+\subsection{One question, code against tools}
+
+On one cycle-check question on a small graph, Claude Code with Sonnet 5.5, allowed only to run Python and read the
+graph file, wrote one networkx script and answered correctly, using 38,660 input tokens (29,071 read from the cache and
+9,585 written to it), 196 output tokens, 4.1 seconds and \$0.046 API-equivalent. Our harness with qwen3:8b answered
+correctly with 1,093 input and 276 output tokens in 3.0 seconds, at zero dollar cost. The overhead, about 35 times more
+input tokens, comes almost entirely from Claude Code's own system prompt and tool definitions.
+% source: docs/learning_log.md (2026-10-04, code-writing agent vs tool harness)
+
+\subsection{Large graphs, nine questions}
+
+Table~\ref{tab:cc-large} compares Claude Code with Sonnet 5.5 (again with Python and the graph file) and our harness
+with qwen3:8b on three questions each of \code{mst}, \code{connected_nodes} and \code{node_degree} on large development
+graphs, one run, both graded by \code{eval/tasks.py}.
+
+\begin{table}[ht]
+  \centering
+  \small
+  \caption{Claude Code (Sonnet 5.5, Python and networkx) against our harness (qwen3:8b, RTX 5070): 9 questions on
+  large development graphs, 1 run. Averages per question unless stated.}
+  \label{tab:cc-large}
+  % source: results/harness_runs/claude_code_vs_harness_large (results.jsonl, progress.log)
+  \begin{tabular}{lrr}
+    \toprule
+    & ours (qwen3:8b, local) & Claude Code (Sonnet 5.5) \\
+    \midrule
+    correct & 9/9 & 9/9 \\
+    input tokens per question & 1,497 & 41,925 \\
+    output tokens per question & 531 & 345 \\
+    time per question & 12.2 s & 6.0 s \\
+    time per question, \code{node_degree} & 2.8 s & 5.3 s \\
+    time per question, \code{connected_nodes} & 5.4 s & 5.4 s \\
+    time per question, \code{mst} & 28.4 s & 7.2 s \\
+    dollar cost, all 9 questions & \$0 & \$0.38 (API-equivalent) \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Both systems answered all nine questions. Claude Code used about 28 times more input tokens per question, mostly its
+own prompt and tools (cached, but present on every call). Our harness was faster on short answers and slower on long
+ones: an 8-billion-parameter model on a consumer GPU writes out a 50-edge spanning tree slowly, and the first, cold-start
+question took 65.9 seconds alone (without it, our average time per question is about 6.8 seconds, as recorded in the
+learning log). On these tasks networkx does the real work in both setups, so the only difference is cost.
+
+\subsection{Claude Code with only our tools, through MCP}
+
+In the third comparison Claude Code's built-in tools were switched off and it saw only our tools through the MCP
+server, on the pilot's shortest-path question (large graph 0, from node 11 to node 21). Table~\ref{tab:mcp-demo} shows
+the result. Claude Code saw exactly our twelve tools of that time and no built-in ones, and used them correctly.
+
+\begin{table}[ht]
+  \centering
+  \small
+  \caption{One shortest-path question: qwen3:8b in our harness (pilot, MacBook) against Sonnet in Claude Code with only
+  our tools via MCP.}
+  \label{tab:mcp-demo}
+  % source: results/harness_runs/claude_code_mcp_demo (stream.jsonl, README.md), docs/learning_log.md (2026-10-08, M3 step 4)
+  \begin{tabular}{l>{\raggedright\arraybackslash}p{4.8cm}>{\raggedright\arraybackslash}p{5.6cm}}
+    \toprule
+    & qwen3:8b, our harness & Sonnet, Claude Code + MCP \\
+    \midrule
+    answer & [11, 21], correct & [11, 21], correct \\
+    calls & \code{shortest_path}, \code{submit_answer} & \code{shortest_path}, text answer \\
+    time & 29.6 s (MacBook) & 3.9 s \\
+    input tokens & 1,290 & about 21,500 (10,864 cache write, 10,700 cache read) \\
+    output tokens & 440 (mostly thinking) & 135 \\
+    dollar cost & \$0 & \$0.047 (API-equivalent) \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+With identical tools, the general-purpose harness still carried about 17 times more context for the same question.
+Claude Code answered in text, so grading at scale needs \code{submit_answer} served over MCP (M6). The model alias
+\code{sonnet} resolved to \code{claude-sonnet-5} rather than 5.5 in this run, so the two Claude Code rows in this
+chapter do not use the same model version.
+
+\section{A multi-step task: the waypoint route}
+
+Ten waypoint questions on small development graphs were run once on the MacBook. All ten were answered correctly, with
+no verifier rejection and one rescued text call (strict accuracy 90\%), at about 2.3 graph-tool calls, 6,758 tokens
+and 239 seconds per question, almost all of it thinking (one two-call question took about 10,000 thinking tokens). All
+four routes that revisit a node were joined correctly, and in one run the model issued both shortest-path calls in a
+single reply. Table~\ref{tab:waypoint} gives the trajectory classes. The process metrics for the same run are tool
+precision 0.80, recall 0.90, F1 0.84 and parameter match 0.83, with exact match in 50\% of questions.
+% source: results/harness_runs/waypoint_small_dev (report --process), docs/learning_log.md (2026-10-08, multi-step task)
+
+\begin{table}[ht]
+  \centering
+  \small
+  \caption{Trajectory classes of the 10 waypoint runs, before and after the description of \code{has_path} was
+  corrected (same runs, re-analysed).}
+  \label{tab:waypoint}
+  % source: docs/learning_log.md (2026-10-08, a multi-step task and trajectory analysis)
+  \begin{tabular}{lrr}
+    \toprule
+    Path taken & first analysis & re-analysis \\
+    \midrule
+    ideal & 5 & 6 \\
+    extra calls & 1 & 2 \\
+    alternative path & 4 & 2 \\
+    wrong path / right calls but wrong answer & 0 & 0 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+In four of ten runs the model used \code{has_path} for one leg, although its description then promised only ``one
+such path'', not a shortest one. It worked because the implementation returns a shortest path; the description was
+corrected to say so, and the analysis now counts such a leg like a shortest-path leg. The runs themselves saw the old
+description.
+
+With \code{run_python} offered on the first three of these questions, the model never used code: it made the same two
+calls and joined the paths in its head. Two of three were correct; the third ended in \code{cannot_answer}, because
+the question's wording at the time (``a shortest route from A to B that passes through C'') could legitimately be read
+as ``one of the shortest A-to-B routes that happens to pass through C'', of which there was none. The wording was
+changed.
+% source: results/harness_runs/waypoint_small_python, docs/learning_log.md (2026-10-08, M3 step 5)
+
+\section{Code versus tools}
+
+\subsection{Step 1: a two-call task}
+
+The waypoint task was run on five large development questions in four setups with qwen3:8b (prompt version v3):
+graph tools only; tools and \code{run_python}; code only with our tools as functions (C1); and code only with networkx
+(C2). Table~\ref{tab:code-step1} shows the result.
+
+\begin{table}[ht]
+  \centering
+  \small
+  \caption{Code versus tools on the waypoint task: 5 large development questions, 1 run, qwen3:8b.}
+  \label{tab:code-step1}
+  % source: results/harness_runs/code_A_tools, code_B_tools_plus_code, code_C1_code_tools, code_C2_code_networkx (report --code)
+  \begin{tabular}{lrrrrr}
+    \toprule
+    Setup & correct & strict & no answer & tokens / q & questions with code \\
+    \midrule
+    tools only & 4/5 & 20\% & 1 & 4,538 & -- \\
+    tools + code & 5/5 & 20\% & 0 & 5,165 & 0\% \\
+    code only, our tools (C1) & 0/5 & 0\% & 5 & 5,913 & 60\% \\
+    code only, networkx (C2) & 5/5 & 20\% & 0 & 3,483 & 100\% \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+A two-call task does not need code, and when code was offered next to the tools the model never used it. Forced to use
+code with our tools, it failed every question: inside code the tools still returned their JSON dictionaries, so a loop
+over \code{get_neighbors(4)} iterated over the dictionary's keys and error dictionaries flowed on as results. This led
+to the plain-value interface described in Chapter~\ref{ch:impl}. With networkx the model succeeded with the fewest
+tokens. The strict accuracy of 20\% in three setups shows that, on these runs, most answers needed a rescued text tool
+call.
+
+\subsection{Step 2: the combine tasks}
+
+The combine tasks need many lookups and a comparison, which is where a loop in code should help. The setups of
+Table~\ref{tab:setups} were run with \code{qwen3.5:9b} on 15 large development questions (five per task), one run each,
+with a 16,384-token context (prompt version v6; v7 for NX, whose text is identical when no compaction happens, and none
+did). An earlier round of the same experiment was invalidated by the context-window problem of
+Section~\ref{sec:case-4k} and is not reported here. Tables~\ref{tab:combine} to~\ref{tab:combine-process} give the
+results.
+
+\begin{table}[ht]
+  \centering
+  \small
+  \caption{Combine tasks, overall: qwen3.5:9b, 15 large development questions, 1 run per setup, 16k context.}
+  \label{tab:combine}
+  % source: results/harness_runs/combine16k_qwen35_{A,B,H,C,NX}
+  % (uv run python -m eval.analysis.report combine16k_qwen35_A combine16k_qwen35_B combine16k_qwen35_H combine16k_qwen35_C combine16k_qwen35_NX --by-task --code --process)
+  \begin{tabular}{lrrrrr}
+    \toprule
+    Setup & correct & accuracy (95\% CI) & no answer & tokens / q & time / q \\
+    \midrule
+    A, tools only & 2/15 & 13.3\% (0.0--33.3) & 11 & 24,978 & 95.4 s \\
+    B, tools + code & 8/15 & 53.3\% (26.7--80.0) & 7 & 21,205 & 41.0 s \\
+    H, tools + code + hint & 14/15 & 93.3\% (80.0--100.0) & 1 & 13,434 & 22.3 s \\
+    C, code only (our tools) & 14/15 & 93.3\% (80.0--100.0) & 0 & 8,334 & 27.9 s \\
+    NX, code only (networkx) & 13/15 & 86.7\% (66.7--100.0) & 2 & 11,476 & 24.8 s \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[ht]
+  \centering
+  \small
+  \caption{Combine tasks, correct answers per task (out of 5).}
+  \label{tab:combine-tasks}
+  % source: results/harness_runs/combine16k_qwen35_{A,B,H,C,NX} (report --by-task)
+  \begin{tabular}{lrrrrr}
+    \toprule
+    Task & A & B & H & C & NX \\
+    \midrule
+    \code{hop_max_degree} & 2 & 3 & 5 & 4 & 5 \\
+    \code{common_neighbors_max} & 0 & 2 & 4 & 5 & 3 \\
+    \code{triangle_count} & 0 & 3 & 5 & 5 & 5 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[ht]
+  \centering
+  \small
+  \caption{Combine tasks, how code was used.}
+  \label{tab:combine-code}
+  % source: results/harness_runs/combine16k_qwen35_{A,B,H,C,NX} (report --code)
+  \begin{tabular}{lrrrrrr}
+    \toprule
+    Setup & used code & code + tools & code calls / q & code errors & tool calls / q & empty replies \\
+    \midrule
+    A & -- & -- & -- & -- & 16.0 & 2 \\
+    B & 87\% & 87\% & 3.6 & 30\% & 6.5 & 1 \\
+    H & 100\% & 73\% & 2.7 & 40\% & 0.9 & 0 \\
+    C & 100\% & 0\% & 3.2 & 40\% & 0.0 & 1 \\
+    NX & 100\% & 0\% & 4.1 & 63\% & 0.0 & 0 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[ht]
+  \centering
+  \small
+  \caption[Combine tasks, process metrics]{Combine tasks, process metrics. ``F1 right'' and ``F1 wrong'' are the mean
+  F1 of runs with a correct and a wrong answer. In NX the code calls networkx, not our tool functions, so expected calls
+  are rarely matched and the metrics are not meaningful for that setup.}
+  \label{tab:combine-process}
+  % source: results/harness_runs/combine16k_qwen35_{A,B,H,C,NX} (report --process)
+  \begin{tabular}{lrrrrrrr}
+    \toprule
+    Setup & precision & recall & F1 & params & exact & F1 right & F1 wrong \\
+    \midrule
+    A & 0.11 & 1.00 & 0.19 & 1.00 & 33\% & 0.29 & 0.17 \\
+    B & 0.22 & 1.00 & 0.31 & 1.00 & 20\% & 0.38 & 0.23 \\
+    H & 0.53 & 1.00 & 0.64 & 1.00 & 53\% & 0.67 & 0.18 \\
+    C & 0.59 & 0.97 & 0.64 & -- & 53\% & 0.64 & 0.67 \\
+    NX & 0.04 & 0.23 & 0.06 & -- & 0\% & 0.05 & 0.18 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The pattern is clear even on 15 questions. With tools only, the model made 16 graph-tool calls per question on
+average and ran out of steps in 10 of 15 questions (one more ended in loop detection); it answered 2 correctly. Offered
+code next to the tools, it used code in 87\% of questions and doubled its accuracy, but still ran out of steps in 7.
+With the one-paragraph strategy hint it used code in every question, combined a tool call for the candidates with code
+over them in 73\% of questions, and answered 14 of 15, with about half the tokens and a quarter of the time of setup A.
+Code alone with our tool functions reached the same 14 of 15 at the lowest token count; code with networkx was slightly
+worse (13 of 15) and had the highest share of failing code calls (63\%).
+
+In the process metrics, recall is about 1 in every setup that uses our tools: the expected calls were always made.
+Precision is what separates the setups, from 0.11 with tools only (many repeated single calls) to 0.53--0.59 with code.
+Unlike the finding of the GDS Agent paper, where tool metrics barely correlate with accuracy, F1 here is higher for
+right answers than for wrong ones in setups A, B and H (0.67 against 0.18 in H), but setup H has a single wrong answer,
+so that contrast rests on one run.
+
+Three caveats apply. These are 15 questions, one run each, so a single question moves accuracy by 6.7 points and the
+intervals overlap for H, C and NX. Only one model was tested in valid conditions. And the answers are numbers, so none
+of them could be verified: code that prints a number provides no evidence a verifier can check, which is a reason to
+keep evidence-returning tools even where code is more accurate.
+
+\section{Case study: a silent 4,096-token context}
+\label{sec:case-4k}
+
+The first round of the combine experiments (qwen3:8b and qwen3.5:9b, setups A, B, H and C) showed a puzzling failure.
+qwen3.5:9b never submitted a wrong answer; its misses were runs that went silent: it found the answer (``the answer is
+3'') and then sent empty replies until loop detection ended the run. A new prompt version (v6) added a dedicated nudge
+for empty replies, showed the output of \code{graph_info()} in the tool description, and restored redefined tool
+functions. The rerun still went silent, and the nudge did not help.
+
+Reading the traces gave the explanation. The model's thinking stopped mid-sentence (``The output shows that''), and in
+one case the model had lost the question. No call in these runs ever had a prompt longer than 4,088 tokens. Ollama
+serves every model with a 4,096-token context unless asked otherwise, although qwen3.5 supports 262k tokens; a prompt
+near the limit leaves no room for the reply, and nothing raises an error. In the first round, the largest prompt of
+each qwen3.5:9b run was between 3,941 and 4,011 tokens; in the rerun with a 16k context, the largest prompts were
+between 3,505 and 7,725 tokens, so the model did need more than 4,096 tokens.
+% source: docs/learning_log.md (2026-10-08, code vs tools ... silent 4k context); max prompt tokens read from
+% results/harness_runs/combine_qwen3_{A,B,H,C}, combine_qwen35_{A,B,H,C} and combine16k_qwen35_{A,B,H,C,NX} (traces.jsonl, model_call prompt_tokens)
+
+The fix (requesting 16k tokens, logging the context window, flagging prompts above 90\% of it, and later compaction)
+is described in Chapter~\ref{ch:impl}. Earlier runs were checked: they all stayed well under the limit (the M2 closing
+runs, for example, never exceeded about 1.7k prompt tokens), so the M2 results and the Claude Code comparison stand.
+All first-round combine runs are treated as invalid in this thesis, including those of qwen3:8b, two of whose runs
+reached prompts of 4,034 and 4,077 tokens, within about 60 tokens of the limit. The qwen3:8b combine experiment has not been rerun.
+\todo[inline]{Rerun the combine setups with qwen3:8b at 16k context (or with the pilot's chosen models) so that the code-versus-tools result covers more than one model.}
+
+Why does Ollama default to so small a context? To write each new token the model attends to every earlier token, and
+the keys and values of earlier tokens are kept in GPU memory, the KV cache, whose size grows linearly with the context:
+$2 \times \text{layers} \times \text{KV heads} \times \text{head size} \times \text{bytes} \times \text{tokens}$. For
+qwen3:8b (36 layers, 8 KV heads of size 128, 16-bit values) that is about 144~KB per token: about 0.6~GB at 4k, 2.3~GB
+at 16k and 18~GB at 128k, more than the whole GPU. The cache is reserved up front, so a small default fits everywhere.
+qwen3.5 uses full attention in only 8 of its 32 layers, with 4 KV heads of size 256, about 32~KB per token, so 16k
+costs about 0.5~GB; the whole loaded model measured 5.8~GB.
+% source: docs/learning_log.md (2026-10-08, KV cache)
+
+The lesson is methodological: a serving setting produced behaviour that looked exactly like a model weakness. For
+the thesis, the context size of every local run is now recorded in the trace and reported.
+
+\section{Summary of findings so far}
+
+\begin{itemize}
+  \item On the existing dataset, a cheap local model with fitting tools is accurate: 100\% lenient accuracy over 270
+        large-graph answers, with a process-perfect tool choice. The dataset is saturated on large graphs and cannot
+        separate setups on most tasks.
+  \item The remaining errors are format errors: tool calls written as text (10--12\% of answers, about half on the
+        neighbor-list task) and evidence left out of a ``yes''. Reasoning errors were not observed on these tasks.
+  \item A tool that fits the task cut cost by roughly an order of magnitude at equal accuracy, three times
+        (\code{has_edge}, \code{degree}, \code{distances_from}/\code{neighborhood}).
+  \item Verifiers caught no wrong answers on these tasks, because the tools left none; their only effect was to send
+        back answers without evidence.
+  \item In the previews, a general-purpose harness with a frontier model reached the same accuracy with 17--35 times
+        more input tokens per question.
+  \item On aggregation tasks, code over the same tools turned 2 of 15 into 14 of 15 for qwen3.5:9b, at about half the
+        tokens; the strategy hint mattered.
+  \item All of this is one run, few questions, the development split and mostly one model.
+\end{itemize}

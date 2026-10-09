@@ -1,0 +1,126 @@
+\chapter{Remaining Work and Timeline}
+\label{ch:remaining}
+
+Everything in this chapter is planned work; none of it is built or measured yet unless stated. The milestones follow
+the project plan (\code{CLAUDE.md}), and are taken one at a time, each with a short plan approved before it starts.
+
+\section{Open items from M2 and M3}
+
+\begin{itemize}
+  \item \emph{Fix A}: make the evidence field of \code{submit_answer} explicitly required for a ``yes'' answer, and
+        measure whether the cycle-check rejections disappear (all 18 rejections of the M2 run were of this kind).
+  \item \emph{Fix B}: state in the system prompt that $G$ is undirected (read from the graph), and measure the effect
+        on the node-degree questions without the \code{degree} tool.
+  \item \emph{Fix C}: fewer text tool calls (a clearer prompt or an example call), measured on strict accuracy.
+  \item A run on the small graphs, skipped in the M2 closing run (only large graphs were run).
+  \item Reading the \code{combine16k} results into the learning log, and rerunning the combine setups with a second
+        model at 16k context.
+  \item \emph{M3 step 6, close-out}: the last step of M3. Like every milestone, it ends with a short entry in the
+        learning log.
+  \item Further items from the GDS Agent review: batch tools that accept handles as inputs (for example the degrees of
+        all nodes in a stored result, or the top-$k$ nodes by a metric among candidates), error-triggered one-line
+        hints, node names as identifiers with ``did you mean'' suggestions, a ``do not retry'' note in truncation
+        messages, and a count of how often frontier models actually verify their results in the published GDS traces.
+\end{itemize}
+\todo[inline]{Confirm the exact scope of M3 step 6 (close-out); the plan only names it.}
+
+\section{Model pilot}
+
+Before further experiments, the cheap model is to be fixed by a pilot of four models that fit the 12~GB GPU
+(Table~\ref{tab:candidates}): qwen3.5:9b, gemma4:12b, gpt-oss:20b and qwen3:8b, each on 54 large-graph questions (six
+per task, one run), about 5--10 minutes per model on the RTX 5070. The decision criteria are strict accuracy, rescued
+tool calls, verifier rejections, and tokens and time per question; the newest small models in the Ollama library
+should be checked first. The chosen model and tool set are then fixed for the remaining experiments.
+
+\section{M4: router and skills}
+\label{sec:m4}
+
+The router classifies the question into a task family (which also fixes the answer type and the verifier) and
+extracts the parameters (node identifiers). It is meant to be swappable, and four candidates are to be compared on
+routing accuracy, latency and cost: a small LLM with structured output; TypeSafe Jev, a zero-shot classifier with typed
+output and a confidence score (a candidate for the classification part only, as a cloud API and a new dependency);
+embeddings (\code{nomic-embed-text}); and a regular-expression baseline. Low confidence leads to no verifier
+(``unverified'') or a question to the user, never a guessed verifier. Jev is a router candidate only, never a verifier.
+
+Skills are per-family playbooks, ported from the pseudo-code prompts of the prior work (\code{data/pseudocodes/}).
+Following the GDS Agent experience, they should use progressive disclosure: a short skill, with troubleshooting text
+shown only when an error happens. A skill ablation (none, minimal, prescriptive; per family and per model) is planned,
+since the code hint helped one model a lot. With the router in place, the agent sees only its family's tools
+(principle 6), which shortens every prompt.
+
+\section{M4.5: interactive command-line interface}
+
+An interactive interface on top of the router: load any graph file, ask questions in plain English in a loop, and see
+the tool calls and whether the answer was verified. Later, follow-up questions that reuse earlier answers. It serves
+debugging and the thesis demonstration.
+
+\section{M5: escalation}
+
+A model cascade: when the verifier rejects an answer (or the run ends without one), a stronger model reruns the loop.
+The local candidate for the stronger model is qwen3.6:35b-a3b, a mixture-of-experts model with about 3B active
+parameters that needs expert offload to system memory; hosted models are the alternative. Escalation can only be
+triggered by verifiable failures, so its benefit depends on the share of tasks with evidence.
+
+\section{M6: benchmarks and baselines}
+
+\paragraph{Generator.} The question generator of the prior work, ported and scaled to graphs with 10,000 nodes and
+more, with balanced yes/no answers, controlled density (long paths, not every pair an edge), questions for
+topological sort, bipartiteness and the multi-step family (farthest node, $k$-hop counts), and later weights and
+direction.
+
+\paragraph{Benchmark adapters.} Loaders for GABench \cite{gabench}, ProGraph \cite{prograph}, GrAlgoBench
+\cite{gralgobench} and GT Bench \cite{gtbench}. A London adapter for the GDS Agent benchmark \cite{gdsagentbench} is a
+priority: the London Underground graph loads into networkx without Neo4j, and the benchmark already contains frontier
+results with tokens and dollar cost per question, so the expensive baseline is already paid for. Some answers depend
+on how GDS implements an algorithm (PageRank scaling, seeded community detection), so only questions with exactly one
+correct answer are usable; the review estimates roughly 55--60 of the 88, to be checked question by question with
+every reference answer recomputed. The questions name stations, so node names are needed, and models may inject
+outside knowledge about London, which synthetic graphs avoid.
+
+\paragraph{Baselines.} Pure prompting (the prior work's methods, with the graph serialized in the prompt), a generic
+ReAct-style agent with Python, Claude Code headless, and GraphTeam \cite{graphteam}, under the rule that harnesses are
+compared with the same model and, where possible, the same tools. The MCP server provides the tools; serving
+\code{submit_answer} over MCP is needed so that a general harness returns a gradable, structured answer. Sandboxing for
+the Claude Code and Codex baselines is open (a local microVM sandbox is a candidate).
+
+\section{M7: experiments}
+
+\begin{itemize}
+  \item Size scaling, from the dataset sizes to 10,000+ nodes, where serialization stops being possible and handles
+        matter.
+  \item Accuracy-versus-cost Pareto fronts across models and harnesses (tokens, latency and dollars).
+  \item Component ablations: tools (fitting tools versus low-level tools), verifiers, handles, code execution, router
+        and skills, escalation, compaction.
+  \item At least three runs per configuration, bootstrap confidence intervals, and a majority-answer baseline per task.
+  \item Final numbers on the test split (graphs 50--99), which has not been used so far.
+  \item Process-level evaluation (Option B of the proposal) as a possible chapter: process metrics, trajectory
+        classes, and whether they predict answer accuracy.
+\end{itemize}
+
+\section{Timeline}
+
+\todo[inline]{Add dates for each milestone (pilot, M3 close-out, M4, M4.5, M5, M6, M7, writing) and the submission deadline. The repository does not record a schedule.}
+
+\begin{table}[ht]
+  \centering
+  \small
+  \caption{Milestones and status on 9 October 2026.}
+  \label{tab:milestones}
+  % source: CLAUDE.md (Milestones, Current status)
+  \begin{tabularx}{\textwidth}{l>{\raggedright\arraybackslash}X l}
+    \toprule
+    Milestone & Content & Status \\
+    \midrule
+    M0 & Project setup, LiteLLM smoke test & done \\
+    M1 & Bare loop, five tools, \code{submit_answer}, JSONL logging & done \\
+    M2 & Verifiers for the ten problems; accuracy and cost report & done (2026-10-07) \\
+    M3 & Full tool set, MCP server, input validation, handles, sandbox & steps 1--5 done; close-out open \\
+    pilot & Choice of the cheap model & planned \\
+    M4 & Router and skills; per-family tool filtering & planned \\
+    M4.5 & Interactive CLI & planned \\
+    M5 & Escalation / model cascade & planned \\
+    M6 & Benchmark adapters and baselines & planned \\
+    M7 & Experiments: scaling, Pareto fronts, ablations, repeated runs & planned \\
+    \bottomrule
+  \end{tabularx}
+\end{table}

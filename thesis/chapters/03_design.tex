@@ -1,0 +1,160 @@
+\chapter{Design of the Harness}
+\label{ch:design}
+
+This chapter presents the design: the target architecture, the ten principles the implementation follows, and the
+separation between the harness and the evaluation code. Chapter~\ref{ch:impl} then describes how each part is built.
+
+\section{Architecture}
+
+Figure~\ref{fig:architecture} shows the target pipeline. A question first goes to a router, a cheap model or
+classifier that picks the task family and the matching skill and extracts the parameters (node identifiers). The
+agent loop then lets the cheap model solve the question with the tools of that family. A verifier written in plain
+Python checks the final answer; if it passes, the answer is returned, and if it fails, the run is escalated to a
+stronger model, which reruns the loop.
+
+The layers, from the bottom up, are: the execution layer (networkx and, for large graphs, faster graph libraries); the
+tool layer (validated graph tools, the result-handle store, and the MCP server); the model layer (LiteLLM
+\cite{litellm}, which gives one interface to local and hosted models and reports token usage and cost); the harness
+core (router, loop, verifiers, skills, escalation); and evaluation and logging on top.
+
+On the date of this draft the agent loop, the tool layer, the verifiers, the model layer and the logging and
+evaluation code are built. The router, the skills, escalation and the benchmark adapters are not; in the figure they
+are drawn with dashed outlines.
+
+\begin{figure}[ht]
+  \centering
+  \begin{tikzpicture}[
+      node distance=6mm and 6mm,
+      box/.style={draw, rounded corners, align=center, minimum height=10mm, text width=24mm, font=\small},
+      planned/.style={box, dashed, text=black!70},
+      arrow/.style={-{Stealth[length=2mm]}, thick}
+    ]
+    \node[box] (q) {question\\(parameters only)};
+    \node[planned, right=of q] (router) {Router\\(task family,\\skill)};
+    \node[box, right=of router] (loop) {Agent loop\\(cheap LLM $\leftrightarrow$\\graph tools)};
+    \node[box, right=of loop] (verify) {Verifier\\(plain Python)};
+    \node[box, below=12mm of verify] (answer) {answer\\(verified or\\unverified)};
+    \node[planned, below=12mm of loop] (esc) {Escalation\\(stronger model\\reruns the loop)};
+    \node[box, above=10mm of loop] (tools) {graph tools, handles\\(graph in memory)};
+    \node[box, above=10mm of router] (llm) {LiteLLM\\(any model)};
+
+    \draw[arrow] (q) -- (router);
+    \draw[arrow] (router) -- (loop);
+    \draw[arrow] (loop) -- (verify);
+    \draw[arrow] (verify) -- node[right, font=\footnotesize] {pass} (answer);
+    \draw[arrow] (verify) -- node[above, sloped, font=\footnotesize] {fail} (esc);
+    \draw[arrow] (esc) -- (loop);
+    \draw[arrow, <->] (loop) -- (tools);
+    \draw[arrow, <->] (llm) -- (loop.north west);
+  \end{tikzpicture}
+  \caption[Target architecture of the harness]{Target architecture. Solid boxes are built; dashed boxes (router,
+  escalation) are planned for M4 and M5. Today the evaluation runner picks the task directly from the dataset, which
+  plays the router's role, and a failed verification is sent back to the same model as an error message.}
+  \label{fig:architecture}
+\end{figure}
+
+A second view, the path of one question through the code as built, is given in Section~\ref{sec:one-question}.
+
+\section{Design principles}
+
+The implementation follows ten principles, fixed at the start of the project. Each is stated below with its
+rationale and the way it is realised; deviations are noted.
+
+\paragraph{1. The graph never goes into the prompt.}
+The graph lives in Python memory; the model sees only tool results. This removes the dependence of the prompt size on
+the graph size and moves the error-prone work (search, counting, copying) into code. For the dataset this means that
+questions are rebuilt from a template with only the parameters, because the stored dataset questions contain the full
+edge list.
+
+\paragraph{2. Tools never raise.}
+Every tool validates its inputs (the node exists, the graph has the right kind, the arguments have the right types)
+and returns \texttt{\{"error": ...\}} with a clear, actionable message instead of raising. A crash would end the run;
+an error message lets the model correct itself. In an early version, a tool that returned an object instead of a
+number crashed the whole run; with this principle in place such bugs become an error message the model can read.
+
+\paragraph{3. Result handles for compaction.}
+Large outputs are stored on the harness side, and the model receives a short summary plus an identifier, for example
+\texttt{\{"handle": "result\_1", "length": 9932, "first\_5": [...]\}}. Tools and \code{submit_answer} accept handles, so a
+9,932-edge spanning forest can be submitted without the model ever writing it out (Section~\ref{sec:handles}). The
+principle was later generalised: nothing the model reads may grow with the graph, including error messages and
+repeated values.
+
+\paragraph{4. Structured final answers.}
+A run ends when the model calls \code{submit_answer}, whose schema depends on the task (a number, true/false, a node
+list, an edge list, or a yes/no with evidence). A shape error goes back to the model. The schema matters more than the
+instructions: in one experiment, the model was told it could submit a handle, but the schema said ``array'', and it
+did the best the schema allowed (Section~\ref{sec:handles}). A second ending tool, \code{cannot_answer}, gives the
+model an honest exit instead of a guess.
+
+\paragraph{5. Verification is code, not the model, and checks evidence.}
+Each task family has a programmatic verifier. A verifier may check only what the answer itself shows: that a path is
+real and connects the right nodes, that a cycle is a cycle, that an edge set is a spanning forest. It must not
+recompute the answer and compare it with the submission, because that would be an oracle: accuracy would approach
+100\% and any comparison with another harness would be meaningless. Answers that cannot be checked without
+re-solving (counts, degrees, edge existence, and every ``no'') are run without a verifier and reported as unverified.
+Table~\ref{tab:checkable} summarises the resulting split.
+
+One qualification belongs here. The shortest-path verifier and the waypoint-route verifier check the path against the
+graph and then compare its length with the shortest-path distance computed by breadth-first search. The path itself is
+evidence, but the optimality check does compute the optimal length. A certificate-based check, in which distance
+labels that satisfy every edge prove a length optimal in $O(|E|)$ checks without a search, is noted as a possible
+upgrade (\code{docs/gds_agent_findings.md}).
+\todo[inline]{Decide whether the BFS length check in verify\_shortest\_path / verify\_path\_via is acceptable under principle 5, or replace it with a distance-label certificate; state the decision here.}
+
+\begin{table}[ht]
+  \centering
+  \small
+  \caption{What can be checked from evidence alone, per task.}
+  \label{tab:checkable}
+  % source: docs/learning_log.md (2026-10-06), harness/tasks.py, harness/verifiers.py
+  \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{5cm}>{\raggedright\arraybackslash}X}
+    \toprule
+    Task & Check \\
+    \midrule
+    \code{shortest_path}, \code{mst}, \code{shortest_path_via} & Full: the answer is the evidence (real edges, right endpoints; no cycle and $n-c$ edges for a spanning forest) \\
+    \code{connectivity} ``yes'', \code{cycle_check} ``yes'' & Partial: the model must send the path or cycle, which is checked; a ``no'' is accepted unseen \\
+    \code{connected_nodes} & Partial: listed nodes must be real neighbors, each listed once; a missing neighbor cannot be seen \\
+    counts, \code{node_degree}, \code{edge_existence}, any ``no'', combine tasks & None: unverified by design \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\paragraph{6. Show only relevant tools.}
+The router picks a task family and the agent sees only that family's tools. Every tool on offer adds to every prompt
+and is one more option to choose wrongly. This principle is not yet realised: the router is planned for M4, and today
+the model sees all default tools. The cost is visible in the data: adding three tools in M3 grew the tool list the
+model reads on every call from about 2,000 to about 2,800 characters.
+
+\paragraph{7. Budgets everywhere.}
+Runs have a maximum number of steps (10 by default), a loop detector that stops a run when the model sends the same
+reply three times in a row, and, since the context-window problem described in Section~\ref{sec:case-4k}, a stop when
+the conversation no longer fits. A maximum cost is part of the principle but is not needed for local models, whose
+dollar cost is zero.
+\todo[inline]{A per-run dollar budget is not implemented yet; add it before API models are used (M5/M6).}
+
+\paragraph{8. Append-only message history.}
+Messages are only appended, which keeps provider prompt caches effective (the prefix of every call is the previous
+call). Two deliberate exceptions exist: the model's hidden thinking is removed from its reply before the reply joins
+the history (it was otherwise re-sent and re-read on every step), and compaction shortens older tool results near the
+context limit, which restarts the cache once.
+
+\paragraph{9. Model-agnostic.}
+All model calls go through LiteLLM; no provider is hard-coded. Switching model is changing one string, and the same
+loop runs local Ollama models and hosted API models.
+
+\paragraph{10. Log everything.}
+Every run writes a JSONL trace: messages, tool calls, results as the model saw them, tokens, latency and, for hosted
+models, cost. Every number in Chapter~\ref{ch:results} is reproducible from these files.
+
+\section{Separation of harness and evaluation}
+
+The harness (\code{harness/}) and the evaluation code (\code{eval/}) are separated in one direction: evaluation may
+import the harness, never the reverse. The task registry in the harness holds only what the agent may use: the
+question template, the answer type and the verifier. Reference answers, dataset parsing and grading live in
+\code{eval/tasks.py}, and the grader is written independently of the verifiers. The sandbox that runs model-written
+code mounts only the graph file and the harness package, never \code{eval/} or \code{results/}, which hold reference
+answers. This is a matter of experimental validity as much as of safety: no ground truth can leak into a run.
+
+A second split concerns the data: graphs 0--49 of each size are the development split, used to build and tune tools,
+prompts and routing, and graphs 50--99 are the test split, kept untouched for final results. The split is by graph,
+so no test graph is ever seen during development.
